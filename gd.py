@@ -27,33 +27,32 @@ def load_all_data():
         # --- Data Cleaning and Preprocessing ---
 
         # 1. Process df_data: Extract Year and rename Value column
-        df_data['Year'] = df_data['Time Code'].str.extract(r'YR(\d{4})').astype(int)
+        if 'Time Code' in df_data.columns:
+            # Ensure 'Time Code' is string type before applying .str accessor
+            df_data['Time Code'] = df_data['Time Code'].astype(str)
+            # Convert extracted year to float first to handle NaNs, then fill NaNs with 0, then convert to int
+            df_data['Year'] = df_data['Time Code'].str.extract(r'YR(\d{4})').astype(float).fillna(0).astype(int)
+        else:
+            st.warning("Warning: 'Time Code' column not found in ESGData.csv. Some features may be limited.")
+            df_data['Year'] = 0 # Default year or handle as appropriate
+
         df_data = df_data.rename(columns={'Value': 'ESG Value'})
 
         # 2. Merge df_data with df_country
-        # This adds 'Country Name' to the main data
         df_merged = pd.merge(df_data, df_country[['Country Code', 'Country Name']], on='Country Code', how='left')
 
         # 3. Merge df_merged with df_series
-        # This adds 'Topic', 'Indicator Name', 'Long definition' to the main data
         df_merged = pd.merge(df_merged, df_series[['Series Code', 'Topic', 'Indicator Name', 'Long definition']], on='Series Code', how='left')
 
-        # 4. Merge df_merged with df_series_time (if needed for additional time-specific info)
-        # Assuming 'Time Code' is the common column. This file seems to mostly confirm years.
-        # For now, we've already extracted 'Year' from df_data, so this merge might be redundant for direct values.
-        # However, it could be useful if df_series_time had other metadata per time code.
-        # Let's keep it simple for now, as 'Year' is already derived.
-
-        # 5. Merge df_merged with df_country_series
-        # This file seems to link Country Code and Series Code, potentially for specific country-series availability.
-        # We can use this later if we want to filter for only available country-series combinations.
-        # For now, we'll rely on actual data presence in df_data.
-
-        # 6. Process df_footnote:
-        # This table contains footnotes for specific data points (Country, Series, Time).
-        # It's best to keep this separate and display relevant footnotes when a specific data point is selected.
-        df_footnote['Year'] = df_footnote['Time Code'].str.extract(r'YR(\d{4})').astype(int)
-
+        # 4. Process df_footnote:
+        if 'Time Code' in df_footnote.columns:
+            # Ensure 'Time Code' is string type before applying .str accessor
+            df_footnote['Time Code'] = df_footnote['Time Code'].astype(str)
+            # Convert extracted year to float first to handle NaNs, then fill NaNs with 0, then convert to int
+            df_footnote['Year'] = df_footnote['Time Code'].str.extract(r'YR(\d{4})').astype(float).fillna(0).astype(int)
+        else:
+            st.warning("Warning: 'Time Code' column not found in ESGFootNote.csv. Footnotes by year may be limited.")
+            df_footnote['Year'] = 0 # Default year or handle as appropriate
 
         # Drop rows where essential columns have missing values after initial merges
         df_merged.dropna(subset=['Country Name', 'Topic', 'Indicator Name', 'ESG Value', 'Year'], inplace=True)
@@ -64,7 +63,7 @@ def load_all_data():
         st.error(f"Error loading data: {e}. Please ensure all 6 CSV files are in the same directory as the script.")
         st.stop() # Stop the app if files are missing
     except Exception as e:
-        st.error(f"An unexpected error occurred during data loading: {e}")
+        st.error(f"An unexpected error occurred during data loading: {e}. Please check your CSV file formats and column names ('Time Code' in particular).")
         st.stop()
 
 # Load all processed dataframes
@@ -74,8 +73,13 @@ df_main, df_footnote, df_country_lookup, df_series_lookup = load_all_data()
 st.sidebar.header("Filter Options")
 
 # 1. ESG Category Filter
-all_topics = sorted(df_main['Topic'].unique().tolist())
-selected_topic = st.sidebar.selectbox("Select ESG Category", all_topics)
+# Ensure df_main is not empty before attempting to access its columns
+if not df_main.empty and 'Topic' in df_main.columns:
+    all_topics = sorted(df_main['Topic'].unique().tolist())
+    selected_topic = st.sidebar.selectbox("Select ESG Category", all_topics)
+else:
+    st.sidebar.error("No ESG data available to filter by category. Please check your data files.")
+    st.stop() # Stop if essential data is missing
 
 # Filter the main DataFrame based on the selected ESG category
 df_filtered_by_topic = df_main[df_main['Topic'] == selected_topic]
@@ -140,8 +144,13 @@ if selected_countries:
 # Check if the final filtered DataFrame is not empty before displaying visualizations
 if not df_final.empty:
     # Retrieve the full indicator name and its long definition for display
-    current_indicator_name = df_series_lookup[df_series_lookup['Series Code'] == selected_series_code]['Indicator Name'].iloc[0]
-    indicator_description = df_series_lookup[df_series_lookup['Series Code'] == selected_series_code]['Long definition'].iloc[0]
+    current_indicator_name = "N/A"
+    indicator_description = "N/A"
+    if selected_series_code and not df_series_lookup.empty:
+        series_info = df_series_lookup[df_series_lookup['Series Code'] == selected_series_code]
+        if not series_info.empty:
+            current_indicator_name = series_info['Indicator Name'].iloc[0]
+            indicator_description = series_info['Long definition'].iloc[0]
     
     # Display the selected indicator's name and its detailed description
     st.subheader(f"Indicator: {current_indicator_name} (Year: {selected_year})")
@@ -199,23 +208,24 @@ if not df_final.empty:
     # --- Display Footnotes (if available for selected data) ---
     st.subheader("Relevant Footnotes")
     # Filter footnotes based on selected country, series, and year
-    # Note: Footnotes are often general or specific to a data point.
-    # This attempts to show footnotes relevant to the current view.
     
-    # Get unique combinations of Country Code, Series Code, Time Code from the final displayed data
-    footnote_keys = df_final[['Country Code', 'Series Code', 'Time Code']].drop_duplicates()
-    
-    # Filter df_footnote for matching entries
-    relevant_footnotes = pd.merge(footnote_keys, df_footnote, on=['Country Code', 'Series Code', 'Time Code'], how='inner')
-
-    if not relevant_footnotes.empty:
-        # Merge with country and series lookup to display names
-        relevant_footnotes = pd.merge(relevant_footnotes, df_country_lookup[['Country Code', 'Country Name']], on='Country Code', how='left')
-        relevant_footnotes = pd.merge(relevant_footnotes, df_series_lookup[['Series Code', 'Indicator Name']], on='Series Code', how='left')
+    # Ensure df_final is not empty before attempting to merge for footnotes
+    if not df_final.empty:
+        footnote_keys = df_final[['Country Code', 'Series Code', 'Time Code']].drop_duplicates()
         
-        st.dataframe(relevant_footnotes[['Country Name', 'Indicator Name', 'Year', 'Footnote']], use_container_width=True)
+        # Filter df_footnote for matching entries
+        relevant_footnotes = pd.merge(footnote_keys, df_footnote, on=['Country Code', 'Series Code', 'Time Code'], how='inner')
+
+        if not relevant_footnotes.empty:
+            # Merge with country and series lookup to display names
+            relevant_footnotes = pd.merge(relevant_footnotes, df_country_lookup[['Country Code', 'Country Name']], on='Country Code', how='left')
+            relevant_footnotes = pd.merge(relevant_footnotes, df_series_lookup[['Series Code', 'Indicator Name']], on='Series Code', how='left')
+            
+            st.dataframe(relevant_footnotes[['Country Name', 'Indicator Name', 'Year', 'Footnote']], use_container_width=True)
+        else:
+            st.info("No specific footnotes found for the current selections.")
     else:
-        st.info("No specific footnotes found for the current selections.")
+        st.info("No data selected to find relevant footnotes.")
 
 else:
     st.info("Please adjust your filter selections. No data is available for the current combination of ESG Category, Indicator, Year, and Countries.")

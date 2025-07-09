@@ -5,16 +5,16 @@ import os
 
 # --- Data Loading Functions ---
 @st.cache_data
-def load_data(data):
+def load_data(file_path):
     """
     Loads a CSV file from the specified path.
     Uses Streamlit's caching to improve performance by loading data only once.
     """
     try:
-        df = pd.read_csv(data)
+        df = pd.read_csv(file_path)
         return df
     except FileNotFoundError:
-        st.error(f"Error: Data file not found: '{data}'. Please ensure your CSVs are in the 'data/' directory.")
+        st.error(f"Error: Data file not found: '{file_path}'. Please ensure your CSVs are in the 'data/' directory.")
         return pd.DataFrame() # Return an empty DataFrame on error
 
 # --- Metric Calculation Functions ---
@@ -277,7 +277,13 @@ if 'Country Code' in esg_data.columns and 'Country Code' in esg_country.columns:
     esg_data.rename(columns={'Table Name': 'Country Name'}, inplace=True)
 else:
     st.warning("Column 'Country Code' not found in ESGData or ESGCountry for merging. Using 'Country Code' as 'Country Name' fallback.")
-    esg_data['Country Name'] = esg_data['Country Code'] # Fallback if merge fails
+    # Fallback: If 'Country Code' is not in esg_data, assign a placeholder.
+    # If it is in esg_data, use it as fallback.
+    if 'Country Code' in esg_data.columns:
+        esg_data['Country Name'] = esg_data['Country Code']
+    else:
+        esg_data['Country Name'] = "Unknown Country"
+
 
 # Merge Indicator Names from ESGSeries.csv into ESGData.csv
 # This adds descriptive names for the ESG indicators.
@@ -286,7 +292,13 @@ if 'Series Code' in esg_data.columns and 'Series Code' in esg_series.columns:
                         on='Series Code', how='left')
 else:
     st.warning("Column 'Series Code' not found in ESGData or ESGSeries for merging. Using 'Series Code' as 'Indicator Name' fallback.")
-    esg_data['Indicator Name'] = esg_data['Series Code'] # Fallback
+    # Fallback: If 'Series Code' is not in esg_data, assign a placeholder.
+    # If it is in esg_data, use it as fallback.
+    if 'Series Code' in esg_data.columns:
+        esg_data['Indicator Name'] = esg_data['Series Code']
+    else:
+        esg_data['Indicator Name'] = "Unknown Indicator"
+
 
 # Ensure 'Time' column is numeric and integer for proper filtering and plotting
 if 'Time' in esg_data.columns:
@@ -410,4 +422,3 @@ else:
 
 st.markdown("---") # Final visual separator
 st.caption("Developed as a Data Governance Dashboard using Streamlit. Remember to customize metric calculations for your specific data.")
-

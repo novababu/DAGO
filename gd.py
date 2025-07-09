@@ -5,16 +5,16 @@ import os
 
 # --- Data Loading Functions ---
 @st.cache_data
-def load_data(data):
+def load_data(file_path):
     """
     Loads a CSV file from the specified path.
     Uses Streamlit's caching to improve performance by loading data only once.
     """
     try:
-        df = pd.read_csv(data)
+        df = pd.read_csv(file_path)
         return df
     except FileNotFoundError:
-        st.error(f"Error: Data file not found: '{data}'. Please ensure your CSVs are in the 'data/' directory.")
+        st.error(f"Error: Data file not found: '{file_path}'. Please ensure your CSVs are in the 'data/' directory.")
         return pd.DataFrame() # Return an empty DataFrame on error
 
 # --- Metric Calculation Functions ---
@@ -276,13 +276,10 @@ if 'Country Code' in esg_data.columns and 'Country Code' in esg_country.columns:
                         on='Country Code', how='left')
     esg_data.rename(columns={'Table Name': 'Country Name'}, inplace=True)
 else:
-    st.warning("Column 'Country Code' not found in ESGData or ESGCountry for merging. Using 'Country Code' as 'Country Name' fallback.")
-    # Fallback: If 'Country Code' is not in esg_data, assign a placeholder.
-    # If it is in esg_data, use it as fallback.
-    if 'Country Code' in esg_data.columns:
-        esg_data['Country Name'] = esg_data['Country Code']
-    else:
-        esg_data['Country Name'] = "Unknown Country"
+    st.warning("Column 'Country Code' not found in ESGData or ESGCountry for merging. Assigning 'Unknown Country'.")
+    # Ensure 'Country Name' column exists and is populated for all rows
+    # This handles cases where esg_data might be empty or 'Country Code' is missing.
+    esg_data['Country Name'] = ["Unknown Country"] * len(esg_data) if not esg_data.empty else []
 
 
 # Merge Indicator Names from ESGSeries.csv into ESGData.csv
@@ -291,13 +288,10 @@ if 'Series Code' in esg_data.columns and 'Series Code' in esg_series.columns:
     esg_data = pd.merge(esg_data, esg_series[['Series Code', 'Indicator Name']],
                         on='Series Code', how='left')
 else:
-    st.warning("Column 'Series Code' not found in ESGData or ESGSeries for merging. Using 'Series Code' as 'Indicator Name' fallback.")
-    # Fallback: If 'Series Code' is not in esg_data, assign a placeholder.
-    # If it is in esg_data, use it as fallback.
-    if 'Series Code' in esg_data.columns:
-        esg_data['Indicator Name'] = esg_data['Series Code']
-    else:
-        esg_data['Indicator Name'] = "Unknown Indicator"
+    st.warning("Column 'Series Code' not found in ESGData or ESGSeries for merging. Assigning 'Unknown Indicator'.")
+    # Ensure 'Indicator Name' column exists and is populated for all rows
+    # This handles cases where esg_data might be empty or 'Series Code' is missing.
+    esg_data['Indicator Name'] = ["Unknown Indicator"] * len(esg_data) if not esg_data.empty else []
 
 
 # Ensure 'Time' column is numeric and integer for proper filtering and plotting
@@ -313,13 +307,17 @@ else:
 st.sidebar.header("Filter Data")
 
 # Country Filter: Allows users to select a specific country or view all data.
-all_countries = ["All"] + sorted(esg_data['Country Name'].dropna().unique().tolist())
+# Ensure 'Country Name' column exists before trying to get unique values
+if 'Country Name' in esg_data.columns and not esg_data['Country Name'].empty:
+    all_countries = ["All"] + sorted(esg_data['Country Name'].dropna().unique().tolist())
+else:
+    all_countries = ["All"] # Fallback if no country names are available or df is empty
 selected_country = st.sidebar.selectbox("Select Country:", all_countries)
 
 # Year Filter: Allows users to select a specific year or view all years.
 # Only display if 'Time' column is available in the data.
 selected_year = "All" # Default value
-if 'Time' in esg_data.columns:
+if 'Time' in esg_data.columns and not esg_data['Time'].empty:
     all_years = ["All"] + sorted(esg_data['Time'].dropna().unique().tolist())
     selected_year = st.sidebar.selectbox("Select Year:", all_years)
 else:

@@ -26,7 +26,7 @@ except FileNotFoundError:
 df_merged = pd.merge(df_data, df_country, on='Country Code', how='left')
 
 # Merge with df_series to get Series Name and Description
-df_merged = pd.merge(df_merged, df_series, on='Series Code', how='left')
+df_merged = pd.merge(df_merged, df_series, on='Indicator Code', how='left')
 
 # Clean column names (remove extra spaces/newlines from PDF instructions)
 df_merged.columns = df_merged.columns.str.strip()
@@ -80,7 +80,7 @@ filtered_by_category_df = df_merged.copy()
 if selected_category != 'All':
     filtered_by_category_df = df_merged[df_merged['Category'] == selected_category]
 
-# Filter by Series Code/Name
+# Filter by Indicator Code/Name
 all_series = ['All'] + sorted(filtered_by_category_df['Series Name'].unique().tolist())
 selected_series_name = st.sidebar.selectbox("Select ESG Indicator (Series)", all_series)
 

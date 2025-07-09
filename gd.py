@@ -11,16 +11,16 @@ def load_data(file_path):
         df = pd.read_csv(file_path)
         return df
     except FileNotFoundError:
-        st.error(f"Error: {file_path} not found. Please ensure the data files are in the 'data/' directory.")
+        st.error(f"Error: {file_path} not found. Please ensure the data files are in the 'data/' directory relative to app.py.")
         return pd.DataFrame()
 
 # --- Metric Calculation Functions ---
 def calculate_data_quality_metrics(df):
     """
     Calculates data quality metrics (Accuracy, Completeness, Consistency).
-    Assumes `df` is your processed ESG data.
     YOU WILL NEED TO ADAPT THESE CALCULATIONS BASED ON YOUR ACTUAL DATA COLUMNS
-    AND THE DEFINITIONS IN THE PDF.
+    AND THE DEFINITIONS IN THE "Data Governance and Security Dashboard (Business Analyst).pdf" document.
+    The current implementation uses placeholders and basic checks.
     """
     if df.empty:
         return {
@@ -38,56 +38,43 @@ def calculate_data_quality_metrics(df):
         }
 
     # --- Data Accuracy Rate ---
-    # From PDF: SUM([AccurateRecords]) / SUM([TotalRecords])
-    # Placeholder: Assuming you have a way to determine 'accurate' records.
-    # For ESG data, accuracy might mean:
-    # 1. Values are within expected ranges.
-    # 2. Values match external benchmarks (if available).
-    # 3. No obvious data entry errors (e.g., negative population counts).
-    # Example: Let's assume 'Value' column should always be non-negative.
+    # Placeholder: Assuming 'Value' column should be non-negative for accuracy.
+    # Replace with your actual accuracy logic (e.g., validation against known good values, business rules).
     accurate_records_count = df[df['Value'] >= 0].shape[0] if 'Value' in df.columns else total_records
     data_accuracy_rate = accurate_records_count / total_records
 
     # --- Data Completeness Rate ---
-    # From PDF: SUM([CompleteRecords]) / SUM([TotalRecords])
-    # Placeholder: Check for missing values in critical columns.
-    # Identify key columns that MUST NOT be null.
+    # Placeholder: Checks for missing values in critical columns.
+    # Adjust `critical_columns` to reflect columns that must always have data.
     critical_columns = ['Country Code', 'Series Code', 'Time', 'Value']
-    # Filter to only include columns that actually exist in the dataframe
     existing_critical_columns = [col for col in critical_columns if col in df.columns]
 
     if existing_critical_columns:
         complete_records_count = df.dropna(subset=existing_critical_columns).shape[0]
         data_completeness_rate = complete_records_count / total_records
     else:
-        # If no critical columns are found, consider all records 'complete' for placeholder
-        data_completeness_rate = 1.0
-
+        data_completeness_rate = 1.0 # Default if no critical columns found
 
     # --- Data Consistency Rate ---
-    # From PDF: SUM([ConsistentRecords]) / SUM([TotalRecords])
-    # Placeholder: This is highly domain-specific.
-    # Example: If a 'Year' column should only contain integer values, or 'Value'
-    # should be consistent with other related series data.
-    # Let's check if 'Time' (year) is an integer and 'Value' is numeric.
+    # Placeholder: Checks if 'Time' is integer and 'Value' is numeric.
+    # Replace with your actual consistency rules (e.g., cross-field validation, adherence to formats).
     consistent_records_count = total_records # Start assuming all are consistent
+
     if 'Time' in df.columns:
-        # Check if 'Time' can be converted to integer without error for most values
         try:
+            # Check if 'Time' can be converted to integer without error
             df['Time_int_check'] = pd.to_numeric(df['Time'], errors='coerce').apply(lambda x: x == int(x) if pd.notna(x) else False)
             consistent_records_count = df[df['Time_int_check']].shape[0]
-        except:
-            pass # Fallback if column is not suitable
+        except Exception as e:
+            st.warning(f"Consistency check for 'Time' column failed: {e}")
 
     if 'Value' in df.columns:
         try:
-            # Check if 'Value' is numeric for consistency
-            numeric_values = pd.to_numeric(df['Value'], errors='coerce').dropna()
-            # If there are specific rules, apply them here (e.g., Value > 0 for certain series)
-            # For simplicity, if it's numeric, consider it consistent in this placeholder.
-            consistent_records_count = min(consistent_records_count, numeric_values.shape[0])
-        except:
-            pass
+            # Check if 'Value' is numeric
+            numeric_values_count = pd.to_numeric(df['Value'], errors='coerce').dropna().shape[0]
+            consistent_records_count = min(consistent_records_count, numeric_values_count)
+        except Exception as e:
+            st.warning(f"Consistency check for 'Value' column failed: {e}")
 
     data_consistency_rate = consistent_records_count / total_records
 
@@ -101,16 +88,11 @@ def calculate_data_quality_metrics(df):
 def calculate_data_access_metrics(df):
     """
     Calculates data access metrics.
-    YOU WILL LIKELY NEED A SEPARATE DATASET FOR ACCESS REQUESTS AS PER THE PDF'S MENTION
-    OF [AccessRequestID], [RequestStatus], [RequestDate], [ApprovalDate].
-    These are placeholder values as ESGData.csv doesn't contain this info.
+    These are placeholder values. In a real scenario, you'd integrate with
+    access logs or a system that tracks access requests.
     """
-    # From PDF:
-    # Number of Data Access Requests: COUNT([AccessRequestID])
-    # Number of Approved Requests: COUNT(IF [RequestStatus] = 'Approved' THEN 1 ELSE NULL END)
-    # Average Time to Approve Requests: AVG(DATEDIFF('day', [RequestDate], [ApprovalDate]))
-
-    # Placeholder: Simulating values for demonstration
+    # From PDF: [AccessRequestID], [RequestStatus], [RequestDate], [ApprovalDate]
+    # Simulating values as ESGData.csv does not contain this information.
     num_access_requests = 125
     num_approved_requests = 110
     avg_time_to_approve = 2.8 # days
@@ -124,17 +106,11 @@ def calculate_data_access_metrics(df):
 def calculate_data_privacy_metrics(df):
     """
     Calculates data privacy metrics.
-    YOU WILL NEED TO ADAPT THESE CALCULATIONS BASED ON YOUR ACTUAL DATA COLUMNS
-    AND HOW YOU DEFINE PRIVACY COMPLIANCE (e.g., based on [ComplianceStatus] column).
+    This is a placeholder. You need to define how privacy compliance is measured
+    from your data (e.g., presence of PII where not allowed, audit results).
     """
-    if df.empty:
-        return {
-            "Compliance Rate with Privacy Policies": 0.0
-        }
-
-    # From PDF: Compliance Rate with Privacy Policies: SUM(IF [ComplianceStatus] = 'Compliant' THEN 1 ELSE 0 END) / COUNT([ComplianceStatus])
-
-    # Placeholder: Assume 95% compliance for demonstration
+    # From PDF: SUM(IF [ComplianceStatus] = 'Compliant' THEN 1 ELSE 0 END) / COUNT([ComplianceStatus])
+    # Simulating a high compliance rate for demonstration.
     compliance_rate = 0.95
 
     return {
@@ -144,17 +120,11 @@ def calculate_data_privacy_metrics(df):
 def calculate_data_security_metrics(df):
     """
     Calculates data security metrics.
-    YOU WILL LIKELY NEED A SEPARATE SECURITY LOG DATASET.
-    These are placeholder values.
+    This is a placeholder. In a real system, this would come from security logs
+    or intrusion detection systems.
     """
-    if df.empty:
-        return {
-            "Number of Unauthorized Access Attempts": 0
-        }
-
-    # From PDF: Number of Unauthorized Access Attempts: COUNT(IF [AccessStatus] = 'Unauthorized' THEN 1 ELSE NULL END)
-
-    # Placeholder: Simulating a number of unauthorized attempts
+    # From PDF: COUNT(IF [AccessStatus] = 'Unauthorized' THEN 1 ELSE NULL END)
+    # Simulating a small number of unauthorized attempts.
     num_unauthorized_attempts = 7
 
     return {
@@ -164,17 +134,11 @@ def calculate_data_security_metrics(df):
 def calculate_compliance_metrics(df):
     """
     Calculates general compliance metrics.
-    YOU WILL NEED TO ADAPT THESE CALCULATIONS BASED ON YOUR ACTUAL DATA COLUMNS
-    AND HOW YOU DEFINE GENERAL COMPLIANCE (e.g., based on [AuditStatus] column).
+    This is a placeholder. You need to define how general compliance is measured
+    (e.g., results from internal/external audits, adherence to regulations).
     """
-    if df.empty:
-        return {
-            "Compliance Rate (General)": 0.0
-        }
-
-    # From PDF: Compliance Rate: SUM(IF [AuditStatus] = 'Passed' THEN 1 ELSE 0 END) / COUNT([AuditStatus])
-
-    # Placeholder: Assume 90% general compliance for demonstration
+    # From PDF: SUM(IF [AuditStatus] = 'Passed' THEN 1 ELSE 0 END) / COUNT([AuditStatus])
+    # Simulating a general compliance rate.
     general_compliance_rate = 0.90
 
     return {
@@ -186,7 +150,7 @@ def create_gauge_chart(value, title, max_value=1.0):
     """
     Creates a simple gauge chart for a percentage value using Plotly Express.
     """
-    value = max(0, min(value, max_value)) # Ensure value is within bounds
+    value = max(0, min(value, max_value)) # Ensure value is within bounds [0, max_value]
 
     fig = px.bar(
         x=[value], y=[0],
@@ -197,10 +161,11 @@ def create_gauge_chart(value, title, max_value=1.0):
         color_discrete_sequence=['lightgray'] # Background bar
     )
 
-    # Add a colored bar for the actual value
+    # Add a colored bar for the actual value based on thresholds
+    bar_color = 'red' if value < 0.6 else ('orange' if value < 0.8 else px.colors.sequential.Plotly3[1])
     fig.add_bar(
         x=[value], y=[0],
-        marker_color=px.colors.sequential.Plotly3[1] if value >= 0.8 else ('red' if value < 0.6 else 'orange'),
+        marker_color=bar_color,
         showlegend=False
     )
 
@@ -223,7 +188,7 @@ def create_gauge_chart(value, title, max_value=1.0):
         text=f"{value*100:.1f}%",
         showarrow=False,
         font=dict(size=20, color="black"),
-        xanchor="left" if value < max_value * 0.7 else "right", # Adjust text anchor
+        xanchor="left" if value < max_value * 0.7 else "right", # Adjust text anchor based on value
         xshift=10 if value < max_value * 0.7 else -10
     )
 
@@ -262,7 +227,7 @@ st.set_page_config(
 st.title("📊 Data Governance and Security Dashboard")
 
 # --- Load Data ---
-# All data loading moved here for consolidation
+# All data loading is handled here, assuming files are in a 'data/' subdirectory
 esg_data = load_data('data/ESGData.csv')
 esg_country = load_data('data/ESGCountry.csv')
 esg_series = load_data('data/ESGSeries.csv')
@@ -277,28 +242,30 @@ if esg_data.empty or esg_country.empty or esg_series.empty:
     st.stop() # Stop the app if core data isn't loaded
 
 # --- Data Preprocessing (Example: Merge for Country and Indicator Names) ---
-# Merge Country Names
+# Merge Country Names from ESGCountry.csv into ESGData.csv
 if 'Country Code' in esg_data.columns and 'Country Code' in esg_country.columns:
     esg_data = pd.merge(esg_data, esg_country[['Country Code', 'Table Name']],
                         on='Country Code', how='left')
     esg_data.rename(columns={'Table Name': 'Country Name'}, inplace=True)
 else:
-    st.warning("Country Code column not found in ESGData or ESGCountry for merging. Using Country Code as Country Name.")
+    st.warning("Country Code column not found in ESGData or ESGCountry for merging. Using 'Country Code' as 'Country Name'.")
     esg_data['Country Name'] = esg_data['Country Code'] # Fallback
 
-# Merge Indicator Names
+# Merge Indicator Names from ESGSeries.csv into ESGData.csv
 if 'Series Code' in esg_data.columns and 'Series Code' in esg_series.columns:
     esg_data = pd.merge(esg_data, esg_series[['Series Code', 'Indicator Name']],
                         on='Series Code', how='left')
 else:
-    st.warning("Series Code column not found in ESGData or ESGSeries for merging. Using Series Code as Indicator Name.")
+    st.warning("Series Code column not found in ESGData or ESGSeries for merging. Using 'Series Code' as 'Indicator Name'.")
     esg_data['Indicator Name'] = esg_data['Series Code'] # Fallback
 
-# Ensure 'Time' column is numeric for filtering
+# Ensure 'Time' column is numeric for filtering and plotting
 if 'Time' in esg_data.columns:
     esg_data['Time'] = pd.to_numeric(esg_data['Time'], errors='coerce')
-    esg_data.dropna(subset=['Time'], inplace=True)
-    esg_data['Time'] = esg_data['Time'].astype(int)
+    esg_data.dropna(subset=['Time'], inplace=True) # Remove rows where 'Time' couldn't be converted
+    esg_data['Time'] = esg_data['Time'].astype(int) # Convert to integer for cleaner display
+else:
+    st.warning("No 'Time' column found in ESGData. Year filtering and time-series plots will be limited.")
 
 
 # --- Sidebar Filters ---
@@ -308,15 +275,15 @@ st.sidebar.header("Filter Data")
 all_countries = ["All"] + sorted(esg_data['Country Name'].dropna().unique().tolist())
 selected_country = st.sidebar.selectbox("Select Country:", all_countries)
 
-# Year Filter (assuming 'Time' column in ESGData represents year)
+# Year Filter (only if 'Time' column exists)
+selected_year = "All" # Default
 if 'Time' in esg_data.columns:
     all_years = ["All"] + sorted(esg_data['Time'].dropna().unique().tolist())
     selected_year = st.sidebar.selectbox("Select Year:", all_years)
 else:
-    selected_year = "All"
-    st.sidebar.warning("No 'Time' column found in ESGData for year filtering.")
+    st.sidebar.info("Year filter not available as 'Time' column is missing or invalid.")
 
-# Apply filters
+# Apply filters to the data
 filtered_data = esg_data.copy()
 if selected_country != "All":
     filtered_data = filtered_data[filtered_data['Country Name'] == selected_country]
@@ -326,6 +293,7 @@ if selected_year != "All":
 # --- Dashboard Sections ---
 
 st.header("Data Quality Metrics")
+# Display data quality metrics using columns for better layout
 col1, col2, col3 = st.columns(3)
 data_quality_metrics = calculate_data_quality_metrics(filtered_data)
 
@@ -342,9 +310,10 @@ with col3:
 st.markdown("---")
 
 st.header("Data Access & Security")
+# Display data access and security metrics
 col4, col5, col6 = st.columns(3)
 data_access_metrics = calculate_data_access_metrics(filtered_data)
-data_security_metrics = calculate_data_security_metrics(filtered_data) # This will mostly use simulated data without a real log
+data_security_metrics = calculate_data_security_metrics(filtered_data) # This uses simulated data
 
 with col4:
     st.metric(label="Number of Data Access Requests", value=f"{data_access_metrics['Number of Data Access Requests']:,}")
@@ -359,6 +328,7 @@ st.metric(label="Number of Unauthorized Access Attempts", value=f"{data_security
 st.markdown("---")
 
 st.header("Data Privacy & Compliance")
+# Display data privacy and general compliance metrics
 col7, col8 = st.columns(2)
 data_privacy_metrics = calculate_data_privacy_metrics(filtered_data)
 compliance_metrics = calculate_compliance_metrics(filtered_data)
@@ -368,7 +338,7 @@ with col7:
     st.plotly_chart(create_gauge_chart(data_privacy_metrics['Compliance Rate with Privacy Policies'], "Privacy Compliance Rate"), use_container_width=True)
 with col8:
     st.metric(label="General Compliance Rate", value=f"{compliance_metrics['Compliance Rate (General)']:.2%}")
-    st.plotly_chart(create_gauge_chart(compliance_metrics['Compliance Rate (General)'], "General Compliance Rate"), use_container_width=True)
+    st.plotly_chart(create_gauge_chart(compliance_metrics['Compliance Rate (General)'] , "General Compliance Rate"), use_container_width=True)
 
 st.markdown("---")
 
@@ -378,7 +348,7 @@ st.header("Data Distribution & Trends")
 if not filtered_data.empty and 'Indicator Name' in filtered_data.columns:
     indicator_counts = filtered_data['Indicator Name'].value_counts().reset_index()
     indicator_counts.columns = ['Indicator Name', 'Count']
-    # Show top N indicators
+    # Allow user to select how many top indicators to show
     n_top_indicators = st.slider("Show Top N Indicators:", 5, 20, 10)
     st.plotly_chart(create_bar_chart(indicator_counts.head(n_top_indicators), 'Indicator Name', 'Count', f"Top {n_top_indicators} Indicators by Data Points"), use_container_width=True)
 else:
@@ -391,18 +361,21 @@ if 'Time' in filtered_data.columns and 'Value' in filtered_data.columns and 'Ind
     available_indicators = filtered_data['Indicator Name'].dropna().unique().tolist()
     if available_indicators:
         selected_trend_indicator = st.selectbox("Select Indicator for Trend:", available_indicators)
+        # Filter for the selected indicator and sort by time
         trend_data = filtered_data[filtered_data['Indicator Name'] == selected_trend_indicator].sort_values('Time')
         if not trend_data.empty:
-            # Aggregate if multiple entries for same year/indicator (e.g., average)
+            # Aggregate if multiple entries for same year/indicator (e.g., average value per year)
             trend_data_agg = trend_data.groupby('Time')['Value'].mean().reset_index()
             st.plotly_chart(create_line_chart(trend_data_agg, 'Time', 'Value', f"Trend of {selected_trend_indicator}"), use_container_width=True)
         else:
-            st.info("No data for selected indicator trend.")
+            st.info("No data available for the selected indicator trend.")
     else:
-        st.info("No indicators available for trend analysis.")
+        st.info("No indicators available for trend analysis in the filtered data.")
 else:
-    st.info("Required columns ('Time', 'Value', 'Indicator Name') not found for trend analysis.")
+    st.info("Required columns ('Time', 'Value', 'Indicator Name') not found for trend analysis or filtered data is empty.")
 
 
 st.markdown("---")
 st.caption("Developed as a Data Governance Dashboard using Streamlit.")
+
+

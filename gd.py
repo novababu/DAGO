@@ -5,16 +5,16 @@ import os
 
 # --- Data Loading Functions ---
 @st.cache_data
-def load_data(file_path):
+def load_data(data):
     """
     Loads a CSV file from the specified path.
     Uses Streamlit's caching to improve performance by loading data only once.
     """
     try:
-        df = pd.read_csv(file_path)
+        df = pd.read_csv(data)
         return df
     except FileNotFoundError:
-        st.error(f"Error: Data file not found: '{file_path}'. Please ensure your CSVs are in the 'data/' directory.")
+        st.error(f"Error: Data file not found: '{data}'. Please ensure your CSVs are in the 'data/' directory.")
         return pd.DataFrame() # Return an empty DataFrame on error
 
 # --- Metric Calculation Functions ---
@@ -268,30 +268,46 @@ if esg_data.empty or esg_country.empty or esg_series.empty:
     st.warning("One or more core data files could not be loaded. Please ensure they are in the 'data/' directory and accessible.")
     st.stop() # Stop the application if essential data is missing
 
+# --- Debugging Output: Display actual columns and head of data ---
+st.subheader("Debugging Info (Temporary - will be removed later)")
+st.write("Columns in ESG Data:", esg_data.columns.tolist())
+st.write("First 5 rows of ESG Data:", esg_data.head())
+st.write("Columns in ESG Country:", esg_country.columns.tolist())
+st.write("Columns in ESG Series:", esg_series.columns.tolist())
+st.subheader("End Debugging Info")
+
 # --- Data Preprocessing (Merging for display names) ---
+# Initialize 'Country Name' and 'Indicator Name' columns with placeholders
+# This ensures these columns always exist, preventing AttributeError later.
+esg_data['Country Name'] = "Unknown Country"
+esg_data['Indicator Name'] = "Unknown Indicator"
+
 # Merge Country Names from ESGCountry.csv into ESGData.csv
 # This enriches the main data with human-readable country names.
 if 'Country Code' in esg_data.columns and 'Country Code' in esg_country.columns:
     esg_data = pd.merge(esg_data, esg_country[['Country Code', 'Table Name']],
-                        on='Country Code', how='left')
-    esg_data.rename(columns={'Table Name': 'Country Name'}, inplace=True)
+                        on='Country Code', how='left', suffixes=('', '_y'))
+    # Use the merged 'Table Name' if available, otherwise keep 'Unknown Country'
+    esg_data['Country Name'] = esg_data['Table Name'].fillna(esg_data['Country Name'])
+    # Drop the temporary merged column
+    if 'Table Name' in esg_data.columns:
+        esg_data.drop(columns=['Table Name'], inplace=True)
 else:
-    st.warning("Column 'Country Code' not found in ESGData or ESGCountry for merging. Assigning 'Unknown Country'.")
-    # Ensure 'Country Name' column exists and is populated for all rows
-    # This handles cases where esg_data might be empty or 'Country Code' is missing.
-    esg_data['Country Name'] = ["Unknown Country"] * len(esg_data) if not esg_data.empty else []
+    st.warning("Column 'Country Code' not found in ESGData or ESGCountry for merging. 'Country Name' will be 'Unknown Country'.")
 
 
 # Merge Indicator Names from ESGSeries.csv into ESGData.csv
 # This adds descriptive names for the ESG indicators.
 if 'Series Code' in esg_data.columns and 'Series Code' in esg_series.columns:
     esg_data = pd.merge(esg_data, esg_series[['Series Code', 'Indicator Name']],
-                        on='Series Code', how='left')
+                        on='Series Code', how='left', suffixes=('', '_y'))
+    # Use the merged 'Indicator Name' if available, otherwise keep 'Unknown Indicator'
+    esg_data['Indicator Name'] = esg_data['Indicator Name_y'].fillna(esg_data['Indicator Name'])
+    # Drop the temporary merged column
+    if 'Indicator Name_y' in esg_data.columns:
+        esg_data.drop(columns=['Indicator Name_y'], inplace=True)
 else:
-    st.warning("Column 'Series Code' not found in ESGData or ESGSeries for merging. Assigning 'Unknown Indicator'.")
-    # Ensure 'Indicator Name' column exists and is populated for all rows
-    # This handles cases where esg_data might be empty or 'Series Code' is missing.
-    esg_data['Indicator Name'] = ["Unknown Indicator"] * len(esg_data) if not esg_data.empty else []
+    st.warning("Column 'Series Code' not found in ESGData or ESGSeries for merging. 'Indicator Name' will be 'Unknown Indicator'.")
 
 
 # Ensure 'Time' column is numeric and integer for proper filtering and plotting
@@ -307,8 +323,8 @@ else:
 st.sidebar.header("Filter Data")
 
 # Country Filter: Allows users to select a specific country or view all data.
-# Ensure 'Country Name' column exists before trying to get unique values
-if 'Country Name' in esg_data.columns and not esg_data['Country Name'].empty:
+# Ensure 'Country Name' column exists and is not entirely empty before populating selectbox
+if 'Country Name' in esg_data.columns and not esg_data['Country Name'].dropna().empty:
     all_countries = ["All"] + sorted(esg_data['Country Name'].dropna().unique().tolist())
 else:
     all_countries = ["All"] # Fallback if no country names are available or df is empty
@@ -317,7 +333,7 @@ selected_country = st.sidebar.selectbox("Select Country:", all_countries)
 # Year Filter: Allows users to select a specific year or view all years.
 # Only display if 'Time' column is available in the data.
 selected_year = "All" # Default value
-if 'Time' in esg_data.columns and not esg_data['Time'].empty:
+if 'Time' in esg_data.columns and not esg_data['Time'].dropna().empty:
     all_years = ["All"] + sorted(esg_data['Time'].dropna().unique().tolist())
     selected_year = st.sidebar.selectbox("Select Year:", all_years)
 else:
@@ -418,5 +434,5 @@ else:
     st.info("Required columns ('Time', 'Value', 'Indicator Name') not found for trend analysis, or filtered data is empty.")
 
 
-st.markdown("---") # Final visual separator
+st.markdown("---") # Final visual separatorA
 st.caption("Developed as a Data Governance Dashboard using Streamlit. Remember to customize metric calculations for your specific data.")

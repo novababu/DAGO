@@ -5,16 +5,16 @@ import os
 
 # --- Data Loading Functions ---
 @st.cache_data
-def load_data(file_path):
+def load_data(data):
     """
     Loads a CSV file from the specified path.
     Uses Streamlit's caching to improve performance by loading data only once.
     """
     try:
-        df = pd.read_csv(file_path)
+        df = pd.read_csv(data)
         return df
     except FileNotFoundError:
-        st.error(f"Error: Data file not found: '{file_path}'. Please ensure your CSVs are in the 'data/' directory.")
+        st.error(f"Error: Data file not found: '{data}'. Please ensure your CSVs are in the 'data/' directory.")
         return pd.DataFrame() # Return an empty DataFrame on error
 
 # --- Metric Calculation Functions ---

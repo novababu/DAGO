@@ -1,178 +1,150 @@
 import streamlit as st
-import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
+import pandas as pd
+from io import StringIO
 
-# Set Streamlit page configuration
-st.set_page_config(layout="wide", page_title="ESG Data Governance Dashboard")
+# --- Data Loading (as previously defined and corrected) ---
+esg_data_content = """Country Name,Country Code,Indicator Name,Indicator Code,2010,2015,2020
+Arab World,ARB,Access to clean fuels and technologies for cooking (% of population),EG.CFT.ACCS.ZS,81.8096301963981,83.8975960063981,84.5101713274267
+Arab World,ARB,CO2 emissions (metric tons per capita),EN.ATM.CO2E.PC,4.63064477024689,4.95692831352378,4.71284470207848
+United States,USA,CO2 emissions (metric tons per capita),EN.ATM.CO2E.PC,13.359288,12.000407,9.176472
+India,IND,CO2 emissions (metric tons per capita),EN.ATM.CO2E.PC,1.475037,1.676943,1.845198
+United States,USA,Adjusted savings: natural resources depletion (% of GNI),NY.ADJ.DRES.GN.ZS,0.160354,0.158876,0.158013
+India,IND,Adjusted savings: natural resources depletion (% of GNI),NY.ADJ.DRES.GN.ZS,2.100939,2.236987,2.339023
+"""
 
-# --- Load Data ---
-# It's assumed these CSVs are in the same directory as the Streamlit app.
-# For this example, we'll load them directly. In a real scenario, you might use st.cache_data.
-try:
-    df_data = pd.read_csv("ESGData.csv")
-    df_country = pd.read_csv("ESGCountry.csv")
-    df_series = pd.read_csv("ESGSeries.csv")
-    df_country_series = pd.read_csv("ESGCountry-Series.csv")
-    df_series_time = pd.read_csv("ESGSeries-Time.csv")
-    df_footnote = pd.read_csv("ESGFootNote.csv")
-except FileNotFoundError:
-    st.error("One or more CSV files not found. Please ensure all ESG CSV files are in the same directory.")
-    st.stop()
+esg_country_content = """Country Code,Short Name,Region,Income Group
+USA,United States,North America,High income
+IND,India,Asia,Lower middle income
+CAN,Canada,North America,High income
+ARB,Arab World,Aggregates,Aggregates
+"""
 
-# --- Data Preprocessing ---
-# Merge datasets to create a comprehensive view
-# Merge df_data with df_country to get Country Names
-df_merged = pd.merge(df_data, df_country, on='Country Code', how='left')
+esg_series_content = """Series Code,Topic,Indicator Name,Short definition,Long definition
+EG.CFT.ACCS.ZS,"Environment: Energy and mining","Access to clean fuels and technologies for cooking (% of population)","The share of population with access to clean cooking fuels and technologies.","Access to clean cooking fuels and technologies is the percentage of population primarily using improved cooking stoves or fuels (e.g., electricity, natural gas, LPG, biogas, solar) for cooking."
+EN.ATM.CO2E.PC,"Environment: Emissions","CO2 emissions (metric tons per capita)","Carbon dioxide emissions are those stemming from the burning of fossil fuels and the manufacture of cement.","Carbon dioxide emissions are those stemming from the burning of fossil fuels and the manufacture of cement. They include carbon dioxide produced during consumption of solid, liquid, and gas fuels and gas flaring."
+NY.ADJ.DRES.GN.ZS,"Environment: Environmental policy and institutions","Adjusted savings: natural resources depletion (% of GNI)","Natural resource depletion is the sum of net forest depletion, energy depletion, and mineral depletion.","Natural resource depletion is the sum of net forest depletion, energy depletion, and mineral depletion."
+"""
 
-# Merge with df_series to get Series Name and Description
-df_merged = pd.merge(df_merged, df_series, on='Indicator Code', how='left')
+# Load data
+esg_data = pd.read_csv(StringIO(esg_data_content))
+esg_country = pd.read_csv(StringIO(esg_country_content))
+esg_series = pd.read_csv(StringIO(esg_series_content))
 
-# Clean column names (remove extra spaces/newlines from PDF instructions)
-df_merged.columns = df_merged.columns.str.strip()
+# Strip whitespace from key columns in all dataframes
+esg_data['Country Code'] = esg_data['Country Code'].str.strip()
+esg_data['Indicator Code'] = esg_data['Indicator Code'].str.strip()
+esg_country['Country Code'] = esg_country['Country Code'].str.strip()
+esg_series['Series Code'] = esg_series['Series Code'].str.strip()
 
-# Rename '2023' column to 'Value' for easier plotting (assuming 2023 is the relevant year for values)
-# The PDF implies "ESG value" without specifying a year. Let's use the latest year available.
-# We need to find the year columns dynamically.
-year_columns = [col for col in df_merged.columns if col.isdigit() and len(col) == 4]
-if year_columns:
-    latest_year = max(year_columns)
-    df_merged['Value'] = pd.to_numeric(df_merged[latest_year], errors='coerce')
-    st.sidebar.info(f"Displaying data for the latest available year: **{latest_year}**")
-else:
-    st.error("No year columns found in ESGData.csv for values. Please check the data format.")
-    st.stop()
-
-# Drop rows where 'Value' is NaN (missing ESG data for the selected year)
-df_merged.dropna(subset=['Value'], inplace=True)
-
-# Define ESG Categories based on Series Name keywords (as categories are not explicitly in CSVs)
-# This is an interpretation based on common ESG definitions and the PDF's mention of categories.
-def assign_category(series_name):
-    series_name_lower = series_name.lower()
-    if any(keyword in series_name_lower for keyword in ['co2', 'energy', 'emission', 'renewable', 'climate', 'environmental', 'pollution', 'water', 'land', 'waste']):
-        return 'Environment'
-    elif any(keyword in series_name_lower for keyword in ['social', 'health', 'education', 'poverty', 'gender', 'labor', 'welfare', 'community', 'human rights']):
-        return 'Social'
-    elif any(keyword in series_name_lower for keyword in ['governance', 'corruption', 'board', 'management', 'ethics', 'transparency', 'accountability']):
-        return 'Governance'
-    return 'Other'
-
-df_merged['Category'] = df_merged['Series Name'].apply(assign_category)
-
-# --- Dashboard Title and Introduction ---
-st.title("🌍 Data Governance & ESG Dashboard")
-st.markdown(
-    """
-    This interactive dashboard visualizes Environmental, Social, and Governance (ESG) data across different countries.
-    Use the filters on the sidebar to explore various ESG indicators and compare country performance.
-    """
+# Melt ESGData.csv to long format for easier plotting
+years = [col for col in esg_data.columns if col.isdigit()]
+esg_data_melted = esg_data.melt(
+    id_vars=["Country Name", "Country Code", "Indicator Name", "Indicator Code"],
+    value_vars=years,
+    var_name="Year",
+    value_name="Value"
 )
 
-# --- Sidebar Filters ---
-st.sidebar.header("Dashboard Filters")
+# Convert 'Year' to integer and 'Value' to numeric
+esg_data_melted["Year"] = pd.to_numeric(esg_data_melted["Year"])
+esg_data_melted["Value"] = pd.to_numeric(esg_data_melted["Value"], errors='coerce')
 
-# Filter by Category
-all_categories = ['All'] + sorted(df_merged['Category'].unique().tolist())
-selected_category = st.sidebar.selectbox("Select ESG Category", all_categories)
+# Merge with ESGCountry for region and income group
+esg_data_merged = pd.merge(
+    esg_data_melted,
+    esg_country[["Country Code", "Short Name", "Region", "Income Group"]],
+    on="Country Code",
+    how="left"
+)
 
-filtered_by_category_df = df_merged.copy()
-if selected_category != 'All':
-    filtered_by_category_df = df_merged[df_merged['Category'] == selected_category]
+# Merge with ESGSeries for Topic (Category) and Description
+esg_data_merged = pd.merge(
+    esg_data_merged,
+    esg_series[["Series Code", "Topic", "Indicator Name", "Short definition", "Long definition"]],
+    left_on="Indicator Code",
+    right_on="Series Code",
+    how="left",
+    suffixes=('_data', '_series')
+)
 
-# Filter by Indicator Code/Name
-all_series = ['All'] + sorted(filtered_by_category_df['Series Name'].unique().tolist())
-selected_series_name = st.sidebar.selectbox("Select ESG Indicator (Series)", all_series)
+# Drop redundant columns after merge
+esg_data_merged.drop(columns=["Series Code"], inplace=True)
 
-# Get the Series Description for the selected series
-series_description = ""
-if selected_series_name != 'All':
-    series_desc_df = df_series[df_series['Series Name'] == selected_series_name]['Description'].iloc[0]
-    series_description = f"**Description:** {series_desc_df}"
-    df_filtered = filtered_by_category_df[filtered_by_category_df['Series Name'] == selected_series_name]
-else:
-    df_filtered = filtered_by_category_df.copy()
+# --- Streamlit Dashboard Code ---
 
-# Filter by Country Code
-all_countries = ['All'] + sorted(df_filtered['Country Name'].unique().tolist())
-selected_country_name = st.sidebar.selectbox("Select Country", all_countries)
+st.set_page_config(layout="wide")
 
-if selected_country_name != 'All':
-    df_filtered = df_filtered[df_filtered['Country Name'] == selected_country_name]
+st.title("ESG Data Dashboard")
 
-# Display Series Description Panel
-if selected_series_name != 'All':
-    st.sidebar.markdown(f"---")
-    st.sidebar.markdown(f"**Selected Indicator Details:**")
-    st.sidebar.markdown(f"**Series Name:** {selected_series_name}")
-    st.sidebar.markdown(series_description)
-    st.sidebar.markdown(f"---")
+st.markdown("""
+This dashboard provides an interactive way to explore Environmental, Social, and Governance (ESG) data.
+Use the filters on the sidebar to select countries, indicators, and years to visualize trends and comparisons.
+""")
 
-# Check if filtered data is empty
-if df_filtered.empty:
+# Sidebar filters
+st.sidebar.header("Filter Data")
+
+# Country selection
+all_countries = sorted(esg_data_merged['Country Name'].unique())
+selected_countries = st.sidebar.multiselect(
+    "Select Countries",
+    options=all_countries,
+    default=all_countries if len(all_countries) <= 5 else all_countries[:5]
+)
+
+# Indicator selection
+all_indicators = sorted(esg_data_merged['Indicator Name_data'].unique())
+selected_indicators = st.sidebar.multiselect(
+    "Select Indicators",
+    options=all_indicators,
+    default=all_indicators[0] if all_indicators else []
+)
+
+# Year selection
+min_year = int(esg_data_merged['Year'].min())
+max_year = int(esg_data_merged['Year'].max())
+selected_years = st.sidebar.slider(
+    "Select Year Range",
+    min_value=min_year,
+    max_value=max_year,
+    value=(min_year, max_year)
+)
+
+# Filter data based on selections
+filtered_df = esg_data_merged[
+    (esg_data_merged['Country Name'].isin(selected_countries)) &
+    (esg_data_merged['Indicator Name_data'].isin(selected_indicators)) &
+    (esg_data_merged['Year'] >= selected_years[0]) &
+    (esg_data_merged['Year'] <= selected_years[1])
+]
+
+if filtered_df.empty:
     st.warning("No data available for the selected filters. Please adjust your selections.")
 else:
-    # --- Main Dashboard Components ---
+    st.subheader("ESG Data Trends")
 
-    # 1. Map Visualization
-    st.header("🌎 ESG Indicator Map by Country")
-    st.markdown("Color-coded map showing the selected ESG indicator value for each country.")
+    # Line chart for time series data
+    fig = px.line(
+        filtered_df,
+        x="Year",
+        y="Value",
+        color="Country Name",
+        line_dash="Indicator Name_data",
+        title="Indicator Values Over Time",
+        hover_data={
+            "Country Name": True,
+            "Indicator Name_data": True,
+            "Year": True,
+            "Value": ':.2f',
+            "Short definition": True
+        }
+    )
+    fig.update_layout(hovermode="x unified")
+    st.plotly_chart(fig, use_container_width=True)
 
-    if selected_series_name == 'All':
-        st.info("Please select a specific ESG Indicator from the sidebar to view the map visualization.")
-    else:
-        # For map, we need one value per country for the selected series
-        df_map_data = df_filtered.groupby(['Country Code', 'Country Name', 'Series Name'])['Value'].mean().reset_index()
+    st.subheader("Detailed Data View")
+    st.dataframe(filtered_df)
 
-        fig_map = px.choropleth(
-            df_map_data,
-            locations="Country Code",
-            color="Value",
-            hover_name="Country Name",
-            color_continuous_scale=px.colors.sequential.Plasma,
-            title=f"'{selected_series_name}' Value Across Countries",
-            height=600
-        )
-        fig_map.update_layout(
-            geo=dict(
-                showframe=False,
-                showcoastlines=False,
-                projection_type='equirectangular'
-            ),
-            margin={"r":0,"t":50,"l":0,"b":0}
-        )
-        st.plotly_chart(fig_map, use_container_width=True)
-
-    # 2. Bar Chart
-    st.header("📊 ESG Indicator Comparison Bar Chart")
-    st.markdown("Compare the selected ESG indicator across different countries.")
-
-    if selected_series_name == 'All':
-        st.info("Please select a specific ESG Indicator from the sidebar to view the bar chart comparison.")
-    else:
-        # Group by country and get the mean value for the selected series
-        df_bar_data = df_filtered.groupby(['Country Name'])['Value'].mean().reset_index()
-        df_bar_data = df_bar_data.sort_values(by='Value', ascending=False) # Default sort
-
-        # Allow sorting
-        sort_order = st.radio("Sort by:", ('Descending Value', 'Ascending Value'), horizontal=True)
-        if sort_order == 'Ascending Value':
-            df_bar_data = df_bar_data.sort_values(by='Value', ascending=True)
-
-        fig_bar = px.bar(
-            df_bar_data,
-            x="Country Name",
-            y="Value",
-            title=f"'{selected_series_name}' Value by Country",
-            labels={"Country Name": "Country", "Value": f"{selected_series_name} Value"},
-            height=500
-        )
-        fig_bar.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-    # Optional: Display raw data (for debugging/exploration)
-    with st.expander("View Raw Filtered Data"):
-        st.dataframe(df_filtered)
-
-st.markdown("---")
-st.markdown("Dashboard created using Streamlit and Plotly.")
+st.sidebar.markdown("---")
+st.sidebar.info("Data sourced from various ESG datasets.")

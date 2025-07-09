@@ -1,438 +1,224 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import os
 
-# --- Data Loading Functions ---
+# Set page configuration for a wide layout and a custom title
+st.set_page_config(layout="wide", page_title="Comprehensive World Bank ESG Data Dashboard")
+
+# Main title and introduction for the dashboard
+st.title("Comprehensive World Bank ESG Data Dashboard")
+st.markdown("Explore Environmental, Social, and Governance (ESG) indicators with detailed insights across countries and time.")
+
 @st.cache_data
-def load_data(data):
+def load_all_data():
     """
-    Loads a CSV file from the specified path.
-    Uses Streamlit's caching to improve performance by loading data only once.
+    Loads and merges all six ESG datasets.
+    This function is cached by Streamlit to improve performance on re-runs.
     """
     try:
-        df = pd.read_csv(data)
-        return df
-    except FileNotFoundError:
-        st.error(f"Error: Data file not found: '{data}'. Please ensure your CSVs are in the 'data/' directory.")
-        return pd.DataFrame() # Return an empty DataFrame on error
+        # Load the individual CSV datasets
+        df_data = pd.read_csv('ESGData.csv')
+        df_country = pd.read_csv('ESGCountry.csv')
+        df_series = pd.read_csv('ESGSeries.csv')
+        df_series_time = pd.read_csv('ESGSeries-Time.csv')
+        df_footnote = pd.read_csv('ESGFootNote.csv')
+        df_country_series = pd.read_csv('ESGCountry-Series.csv')
 
-# --- Metric Calculation Functions ---
-def calculate_data_quality_metrics(df):
-    """
-    Calculates data quality metrics (Accuracy, Completeness, Consistency).
-    These calculations are placeholders and should be customized based on:
-    1. The actual structure and content of your 'ESGData.csv'.
-    2. The specific definitions of data quality metrics outlined in your
-       "Data Governance and Security Dashboard (Business Analyst).pdf" document.
-    """
-    if df.empty:
-        return {
-            "Data Accuracy Rate": 0.0,
-            "Data Completeness Rate": 0.0,
-            "Data Consistency Rate": 0.0
-        }
+        # --- Data Cleaning and Preprocessing ---
 
-    total_records = len(df)
-    if total_records == 0: # Avoid division by zero if DataFrame is empty after filtering
-        return {
-            "Data Accuracy Rate": 0.0,
-            "Data Completeness Rate": 0.0,
-            "Data Consistency Rate": 0.0
-        }
+        # 1. Process df_data: Extract Year and rename Value column
+        df_data['Year'] = df_data['Time Code'].str.extract(r'YR(\d{4})').astype(int)
+        df_data = df_data.rename(columns={'Value': 'ESG Value'})
 
-    # --- Data Accuracy Rate ---
-    # Placeholder: Assumes 'Value' column should be non-negative for data to be considered 'accurate'.
-    # Replace this with your actual business rules for data accuracy.
-    # For example: checking against a lookup table, validating data types, or range checks.
-    accurate_records_count = df[df['Value'] >= 0].shape[0] if 'Value' in df.columns else total_records
-    data_accuracy_rate = accurate_records_count / total_records
+        # 2. Merge df_data with df_country
+        # This adds 'Country Name' to the main data
+        df_merged = pd.merge(df_data, df_country[['Country Code', 'Country Name']], on='Country Code', how='left')
 
-    # --- Data Completeness Rate ---
-    # Placeholder: Checks for missing values (NaN) in a set of critical columns.
-    # Adjust `critical_columns` list to include all columns that MUST NOT be empty.
-    critical_columns = ['Country Code', 'Series Code', 'Time', 'Value']
-    # Filter to only include columns that actually exist in the current DataFrame
-    existing_critical_columns = [col for col in critical_columns if col in df.columns]
+        # 3. Merge df_merged with df_series
+        # This adds 'Topic', 'Indicator Name', 'Long definition' to the main data
+        df_merged = pd.merge(df_merged, df_series[['Series Code', 'Topic', 'Indicator Name', 'Long definition']], on='Series Code', how='left')
 
-    if existing_critical_columns:
-        # Count rows where all specified critical columns have non-null values
-        complete_records_count = df.dropna(subset=existing_critical_columns).shape[0]
-        data_completeness_rate = complete_records_count / total_records
-    else:
-        # If no critical columns are found (e.g., due to schema changes), assume 100% completeness
-        data_completeness_rate = 1.0
+        # 4. Merge df_merged with df_series_time (if needed for additional time-specific info)
+        # Assuming 'Time Code' is the common column. This file seems to mostly confirm years.
+        # For now, we've already extracted 'Year' from df_data, so this merge might be redundant for direct values.
+        # However, it could be useful if df_series_time had other metadata per time code.
+        # Let's keep it simple for now, as 'Year' is already derived.
 
-    # --- Data Consistency Rate ---
-    # Placeholder: Checks for consistency based on 'Time' being an integer and 'Value' being numeric.
-    # Replace with your actual consistency rules. This could involve:
-    # - Cross-field validation (e.g., if A then B must be C)
-    # - Adherence to specific formats (e.g., date formats, string patterns)
-    # - Referential integrity checks against other tables.
-    consistent_records_count = total_records # Start by assuming all records are consistent
+        # 5. Merge df_merged with df_country_series
+        # This file seems to link Country Code and Series Code, potentially for specific country-series availability.
+        # We can use this later if we want to filter for only available country-series combinations.
+        # For now, we'll rely on actual data presence in df_data.
 
-    if 'Time' in df.columns:
-        try:
-            # Check if 'Time' can be converted to integer and is indeed an integer
-            df['Time_is_int'] = pd.to_numeric(df['Time'], errors='coerce').apply(lambda x: x == int(x) if pd.notna(x) else False)
-            consistent_records_count = df[df['Time_is_int']].shape[0]
-        except Exception as e:
-            st.warning(f"Consistency check for 'Time' column encountered an issue: {e}")
-
-    if 'Value' in df.columns:
-        try:
-            # Check if 'Value' is numeric. If not, coerce to NaN and drop.
-            numeric_values_count = pd.to_numeric(df['Value'], errors='coerce').dropna().shape[0]
-            # Take the minimum of existing consistency checks
-            consistent_records_count = min(consistent_records_count, numeric_values_count)
-        except Exception as e:
-            st.warning(f"Consistency check for 'Value' column encountered an issue: {e}")
-
-    data_consistency_rate = consistent_records_count / total_records
-
-    return {
-        "Data Accuracy Rate": data_accuracy_rate,
-        "Data Completeness Rate": data_completeness_rate,
-        "Data Consistency Rate": data_consistency_rate
-    }
+        # 6. Process df_footnote:
+        # This table contains footnotes for specific data points (Country, Series, Time).
+        # It's best to keep this separate and display relevant footnotes when a specific data point is selected.
+        df_footnote['Year'] = df_footnote['Time Code'].str.extract(r'YR(\d{4})').astype(int)
 
 
-def calculate_data_access_metrics(df):
-    """
-    Calculates data access metrics.
-    These are simulated placeholder values. In a real-world scenario,
-    these metrics would typically be derived from a separate data access log
-    that contains fields like 'AccessRequestID', 'RequestStatus', 'RequestDate',
-    and 'ApprovalDate' as mentioned in the PDF.
-    """
-    num_access_requests = 125 # Example: Total number of data access requests
-    num_approved_requests = 110 # Example: Number of approved requests
-    avg_time_to_approve = 2.8 # Example: Average time in days to approve requests
+        # Drop rows where essential columns have missing values after initial merges
+        df_merged.dropna(subset=['Country Name', 'Topic', 'Indicator Name', 'ESG Value', 'Year'], inplace=True)
 
-    return {
-        "Number of Data Access Requests": num_access_requests,
-        "Number of Approved Requests": num_approved_requests,
-        "Average Time to Approve Requests (days)": avg_time_to_approve
-    }
+        return df_merged, df_footnote, df_country, df_series # Return all relevant dataframes
 
-def calculate_data_privacy_metrics(df):
-    """
-    Calculates data privacy compliance metrics.
-    This is a placeholder. Real privacy compliance would involve:
-    - Auditing data handling processes.
-    - Checking for unauthorized PII access/storage.
-    - Reviewing data masking/anonymization effectiveness.
-    - Assessing adherence to regulations (e.g., GDPR, CCPA).
-    """
-    # From PDF: SUM(IF [ComplianceStatus] = 'Compliant' THEN 1 ELSE 0 END) / COUNT([ComplianceStatus])
-    # Simulating a high compliance rate for demonstration purposes.
-    compliance_rate = 0.95
+    except FileNotFoundError as e:
+        st.error(f"Error loading data: {e}. Please ensure all 6 CSV files are in the same directory as the script.")
+        st.stop() # Stop the app if files are missing
+    except Exception as e:
+        st.error(f"An unexpected error occurred during data loading: {e}")
+        st.stop()
 
-    return {
-        "Compliance Rate with Privacy Policies": compliance_rate
-    }
-
-def calculate_data_security_metrics(df):
-    """
-    Calculates data security metrics.
-    This is a placeholder. In a production environment, this would integrate with:
-    - Security information and event management (SIEM) systems.
-    - Intrusion detection/prevention systems (IDS/IPS) logs.
-    - Access control logs.
-    """
-    # From PDF: COUNT(IF [AccessStatus] = 'Unauthorized' THEN 1 ELSE NULL END)
-    # Simulating a small, fixed number of unauthorized attempts.
-    num_unauthorized_attempts = 7
-
-    return {
-        "Number of Unauthorized Access Attempts": num_unauthorized_attempts
-    }
-
-def calculate_compliance_metrics(df):
-    """
-    Calculates general compliance metrics.
-    This is a placeholder. General compliance could encompass:
-    - Results from internal or external audits (e.g., audit pass rate).
-    - Adherence to industry standards or internal policies.
-    """
-    # From PDF: SUM(IF [AuditStatus] = 'Passed' THEN 1 ELSE 0 END) / COUNT([AuditStatus])
-    # Simulating a general compliance rate.
-    general_compliance_rate = 0.90
-
-    return {
-        "Compliance Rate (General)": general_compliance_rate
-    }
-
-# --- Visualization Functions ---
-def create_gauge_chart(value, title, max_value=1.0):
-    """
-    Creates a simple horizontal bar chart that acts as a gauge for a percentage value.
-    The bar color changes based on the 'value' to indicate performance (red, orange, green).
-    """
-    value = max(0, min(value, max_value)) # Ensure value is within bounds [0, max_value]
-
-    # Create a base bar (light gray) representing the full range
-    fig = px.bar(
-        x=[max_value], y=[0],
-        orientation='h',
-        range_x=[0, max_value],
-        height=120,
-        width=300,
-        color_discrete_sequence=['lightgray']
-    )
-
-    # Determine the color of the value bar based on thresholds
-    bar_color = 'red' if value < 0.6 else ('orange' if value < 0.8 else px.colors.sequential.Plotly3[1]) # Green-like color
-
-    # Add the actual value bar on top of the base bar
-    fig.add_bar(
-        x=[value], y=[0],
-        marker_color=bar_color,
-        showlegend=False
-    )
-
-    # Configure layout for a clean, gauge-like appearance
-    fig.update_layout(
-        showlegend=False,
-        plot_bgcolor="rgba(0,0,0,0)", # Transparent plot background
-        paper_bgcolor="rgba(0,0,0,0)", # Transparent paper background
-        margin=dict(l=0, r=0, t=50, b=0), # Adjust margins
-        xaxis=dict(showgrid=False, showticklabels=False, zeroline=False), # Hide x-axis elements
-        yaxis=dict(showgrid=False, showticklabels=False, zeroline=False), # Hide y-axis elements
-        title=f"<b>{title}</b>", # Bold title
-        title_x=0.5, # Center title horizontally
-        title_y=0.9 # Position title near the top
-    )
-
-    # Add the percentage text directly on the gauge
-    fig.add_annotation(
-        x=value, # Position text at the end of the colored bar
-        y=0.5, # Vertically centered
-        text=f"{value*100:.1f}%", # Format value as percentage with one decimal
-        showarrow=False,
-        font=dict(size=20, color="black"),
-        # Adjust text anchor to prevent overlap with the bar's end
-        xanchor="left" if value < max_value * 0.7 else "right",
-        xshift=10 if value < max_value * 0.7 else -10 # Shift text slightly
-    )
-
-    return fig
-
-def create_bar_chart(df, x_col, y_col, title, color_col=None):
-    """
-    Creates a bar chart using Plotly Express.
-    Includes a message if the DataFrame is empty.
-    """
-    if df.empty:
-        return px.scatter(title=f"<b>{title}</b><br><i>No data available</i>")
-    fig = px.bar(df, x=x_col, y=y_col, title=f"<b>{title}</b>", color=color_col)
-    fig.update_layout(xaxis_title="", yaxis_title="") # Clean up axis labels
-    return fig
-
-def create_line_chart(df, x_col, y_col, title, color_col=None):
-    """
-    Creates a line chart using Plotly Express.
-    Includes a message if the DataFrame is empty.
-    """
-    if df.empty:
-        return px.scatter(title=f"<b>{title}</b><br><i>No data available</i>")
-    fig = px.line(df, x=x_col, y=y_col, title=f"<b>{title}</b>", color=color_col)
-    fig.update_layout(xaxis_title="", yaxis_title="") # Clean up axis labels
-    return fig
-
-# --- Streamlit App Layout ---
-
-# Configure the Streamlit page settings
-st.set_page_config(
-    page_title="Data Governance Dashboard", # Title that appears in the browser tab
-    page_icon="📊", # Icon for the browser tab
-    layout="wide", # Use a wide layout for more content space
-    initial_sidebar_state="expanded" # Keep the sidebar open by default
-)
-
-st.title("📊 Data Governance and Security Dashboard") # Main title of the dashboard
-
-# --- Load Data ---
-# Load all necessary CSV files. These paths are relative to where app.py is run.
-esg_data = load_data('data/ESGData.csv')
-esg_country = load_data('data/ESGCountry.csv')
-esg_series = load_data('data/ESGSeries.csv')
-# You can uncomment and load other CSV files if your metrics or visualizations require them:
-# esg_series_time = load_data('data/ESGSeries-Time.csv')
-# esg_footnote = load_data('data/ESGFootNote.csv')
-# esg_country_series = load_data('data/ESGCountry-Series.csv')
-
-
-# Check if core dataframes are loaded successfully before proceeding
-if esg_data.empty or esg_country.empty or esg_series.empty:
-    st.warning("One or more core data files could not be loaded. Please ensure they are in the 'data/' directory and accessible.")
-    st.stop() # Stop the application if essential data is missing
-
-# --- Debugging Output: Display actual columns and head of data ---
-st.subheader("Debugging Info (Temporary - will be removed later)")
-st.write("Columns in ESG Data:", esg_data.columns.tolist())
-st.write("First 5 rows of ESG Data:", esg_data.head())
-st.write("Columns in ESG Country:", esg_country.columns.tolist())
-st.write("Columns in ESG Series:", esg_series.columns.tolist())
-st.subheader("End Debugging Info")
-
-# --- Data Preprocessing (Merging for display names) ---
-# Initialize 'Country Name' and 'Indicator Name' columns with placeholders
-# This ensures these columns always exist, preventing AttributeError later.
-esg_data['Country Name'] = "Unknown Country"
-esg_data['Indicator Name'] = "Unknown Indicator"
-
-# Merge Country Names from ESGCountry.csv into ESGData.csv
-# This enriches the main data with human-readable country names.
-if 'Country Code' in esg_data.columns and 'Country Code' in esg_country.columns:
-    esg_data = pd.merge(esg_data, esg_country[['Country Code', 'Table Name']],
-                        on='Country Code', how='left', suffixes=('', '_y'))
-    # Use the merged 'Table Name' if available, otherwise keep 'Unknown Country'
-    esg_data['Country Name'] = esg_data['Table Name'].fillna(esg_data['Country Name'])
-    # Drop the temporary merged column
-    if 'Table Name' in esg_data.columns:
-        esg_data.drop(columns=['Table Name'], inplace=True)
-else:
-    st.warning("Column 'Country Code' not found in ESGData or ESGCountry for merging. 'Country Name' will be 'Unknown Country'.")
-
-
-# Merge Indicator Names from ESGSeries.csv into ESGData.csv
-# This adds descriptive names for the ESG indicators.
-if 'Series Code' in esg_data.columns and 'Series Code' in esg_series.columns:
-    esg_data = pd.merge(esg_data, esg_series[['Series Code', 'Indicator Name']],
-                        on='Series Code', how='left', suffixes=('', '_y'))
-    # Use the merged 'Indicator Name' if available, otherwise keep 'Unknown Indicator'
-    esg_data['Indicator Name'] = esg_data['Indicator Name_y'].fillna(esg_data['Indicator Name'])
-    # Drop the temporary merged column
-    if 'Indicator Name_y' in esg_data.columns:
-        esg_data.drop(columns=['Indicator Name_y'], inplace=True)
-else:
-    st.warning("Column 'Series Code' not found in ESGData or ESGSeries for merging. 'Indicator Name' will be 'Unknown Indicator'.")
-
-
-# Ensure 'Time' column is numeric and integer for proper filtering and plotting
-if 'Time' in esg_data.columns:
-    esg_data['Time'] = pd.to_numeric(esg_data['Time'], errors='coerce') # Convert to numeric, errors become NaN
-    esg_data.dropna(subset=['Time'], inplace=True) # Remove rows where 'Time' couldn't be converted
-    esg_data['Time'] = esg_data['Time'].astype(int) # Convert to integer for cleaner display
-else:
-    st.warning("No 'Time' column found in ESGData. Year filtering and time-series plots may be limited.")
-
+# Load all processed dataframes
+df_main, df_footnote, df_country_lookup, df_series_lookup = load_all_data()
 
 # --- Sidebar Filters ---
-st.sidebar.header("Filter Data")
+st.sidebar.header("Filter Options")
 
-# Country Filter: Allows users to select a specific country or view all data.
-# Ensure 'Country Name' column exists and is not entirely empty before populating selectbox
-if 'Country Name' in esg_data.columns and not esg_data['Country Name'].dropna().empty:
-    all_countries = ["All"] + sorted(esg_data['Country Name'].dropna().unique().tolist())
-else:
-    all_countries = ["All"] # Fallback if no country names are available or df is empty
-selected_country = st.sidebar.selectbox("Select Country:", all_countries)
+# 1. ESG Category Filter
+all_topics = sorted(df_main['Topic'].unique().tolist())
+selected_topic = st.sidebar.selectbox("Select ESG Category", all_topics)
 
-# Year Filter: Allows users to select a specific year or view all years.
-# Only display if 'Time' column is available in the data.
-selected_year = "All" # Default value
-if 'Time' in esg_data.columns and not esg_data['Time'].dropna().empty:
-    all_years = ["All"] + sorted(esg_data['Time'].dropna().unique().tolist())
-    selected_year = st.sidebar.selectbox("Select Year:", all_years)
-else:
-    st.sidebar.info("Year filter not available as 'Time' column is missing or invalid in the data.")
+# Filter the main DataFrame based on the selected ESG category
+df_filtered_by_topic = df_main[df_main['Topic'] == selected_topic]
 
-# Apply filters to create the `filtered_data` DataFrame used for calculations and visualizations
-filtered_data = esg_data.copy()
-if selected_country != "All":
-    filtered_data = filtered_data[filtered_data['Country Name'] == selected_country]
-if selected_year != "All":
-    filtered_data = filtered_data[filtered_data['Time'] == selected_year]
-
-# --- Dashboard Sections ---
-
-# Section 1: Data Quality Metrics
-st.header("Data Quality Metrics")
-# Use Streamlit columns to arrange metrics and charts side-by-side
-col1, col2, col3 = st.columns(3)
-data_quality_metrics = calculate_data_quality_metrics(filtered_data)
-
-with col1:
-    st.metric(label="Data Accuracy Rate", value=f"{data_quality_metrics['Data Accuracy Rate']:.2%}")
-    st.plotly_chart(create_gauge_chart(data_quality_metrics['Data Accuracy Rate'], "Accuracy Rate"), use_container_width=True)
-with col2:
-    st.metric(label="Data Completeness Rate", value=f"{data_quality_metrics['Data Completeness Rate']:.2%}")
-    st.plotly_chart(create_gauge_chart(data_quality_metrics['Data Completeness Rate'], "Completeness Rate"), use_container_width=True)
-with col3:
-    st.metric(label="Data Consistency Rate", value=f"{data_quality_metrics['Data Consistency Rate']:.2%}")
-    st.plotly_chart(create_gauge_chart(data_quality_metrics['Data Consistency Rate'], "Consistency Rate"), use_container_width=True)
-
-st.markdown("---") # Visual separator
-
-# Section 2: Data Access & Security Metrics
-st.header("Data Access & Security")
-col4, col5, col6 = st.columns(3)
-data_access_metrics = calculate_data_access_metrics(filtered_data) # Uses simulated data
-data_security_metrics = calculate_data_security_metrics(filtered_data) # Uses simulated data
-
-with col4:
-    st.metric(label="Number of Data Access Requests", value=f"{data_access_metrics['Number of Data Access Requests']:,}")
-with col5:
-    st.metric(label="Number of Approved Requests", value=f"{data_access_metrics['Number of Approved Requests']:,}")
-with col6:
-    st.metric(label="Avg. Time to Approve Requests", value=f"{data_access_metrics['Average Time to Approve Requests (days)']:.1f} days")
-
-# Display unauthorized access attempts separately
-st.metric(label="Number of Unauthorized Access Attempts", value=f"{data_security_metrics['Number of Unauthorized Access Attempts']:,}")
-
-
-st.markdown("---") # Visual separator
-
-# Section 3: Data Privacy & General Compliance Metrics
-st.header("Data Privacy & Compliance")
-col7, col8 = st.columns(2)
-data_privacy_metrics = calculate_data_privacy_metrics(filtered_data) # Uses simulated data
-compliance_metrics = calculate_compliance_metrics(filtered_data) # Uses simulated data
-
-with col7:
-    st.metric(label="Compliance Rate with Privacy Policies", value=f"{data_privacy_metrics['Compliance Rate with Privacy Policies']:.2%}")
-    st.plotly_chart(create_gauge_chart(data_privacy_metrics['Compliance Rate with Privacy Policies'], "Privacy Compliance Rate"), use_container_width=True)
-with col8:
-    st.metric(label="General Compliance Rate", value=f"{compliance_metrics['Compliance Rate (General)']:.2%}")
-    st.plotly_chart(create_gauge_chart(compliance_metrics['Compliance Rate (General)'] , "General Compliance Rate"), use_container_width=True)
-
-st.markdown("---") # Visual separator
-
-# Section 4: Data Distribution & Trends
-st.header("Data Distribution & Trends")
-
-# Bar chart: Data points by Indicator
-if not filtered_data.empty and 'Indicator Name' in filtered_data.columns:
-    indicator_counts = filtered_data['Indicator Name'].value_counts().reset_index()
-    indicator_counts.columns = ['Indicator Name', 'Count']
-    # Slider to allow user to select how many top indicators to display
-    n_top_indicators = st.slider("Show Top N Indicators by Data Points:", 5, 20, 10, help="Adjust to see more or fewer top indicators.")
-    st.plotly_chart(create_bar_chart(indicator_counts.head(n_top_indicators), 'Indicator Name', 'Count', f"Top {n_top_indicators} Indicators by Data Points"), use_container_width=True)
-else:
-    st.info("No 'Indicator Name' data or filtered data is empty for distribution analysis.")
-
-
-# Line chart: Value trends over time for a selected indicator
-if 'Time' in filtered_data.columns and 'Value' in filtered_data.columns and 'Indicator Name' in filtered_data.columns:
-    st.subheader("Indicator Value Trends Over Time")
-    available_indicators = filtered_data['Indicator Name'].dropna().unique().tolist()
-    if available_indicators:
-        selected_trend_indicator = st.selectbox("Select Indicator for Trend Analysis:", available_indicators)
-        # Filter data for the selected indicator and sort by time for correct trend plotting
-        trend_data = filtered_data[filtered_data['Indicator Name'] == selected_trend_indicator].sort_values('Time')
-        if not trend_data.empty:
-            # Aggregate by 'Time' (e.g., average value per year) if multiple entries exist for the same year/indicator
-            trend_data_agg = trend_data.groupby('Time')['Value'].mean().reset_index()
-            st.plotly_chart(create_line_chart(trend_data_agg, 'Time', 'Value', f"Trend of {selected_trend_indicator}"), use_container_width=True)
-        else:
-            st.info("No data available for the selected indicator to show trends.")
+# 2. ESG Indicator Filter (cascades from Category)
+if not df_filtered_by_topic.empty:
+    filtered_series_df = df_filtered_by_topic.drop_duplicates(subset=['Series Code', 'Indicator Name'])
+    series_options = {row['Series Code']: row['Indicator Name'] for index, row in filtered_series_df.iterrows()}
+    
+    if series_options:
+        selected_series_code = st.sidebar.selectbox(
+            "Select ESG Indicator", 
+            sorted(series_options.keys()),
+            format_func=lambda x: series_options[x]
+        )
     else:
-        st.info("No indicators available in the filtered data for trend analysis.")
+        st.sidebar.warning("No indicators available for the selected category. Try a different category.")
+        selected_series_code = None
 else:
-    st.info("Required columns ('Time', 'Value', 'Indicator Name') not found for trend analysis, or filtered data is empty.")
+    st.sidebar.warning("Please select an ESG Category first to see available indicators.")
+    selected_series_code = None
 
+# Filter the DataFrame based on the selected ESG indicator
+df_filtered_by_series = pd.DataFrame()
+if selected_series_code:
+    df_filtered_by_series = df_filtered_by_topic[df_filtered_by_topic['Series Code'] == selected_series_code]
 
-st.markdown("---") # Final visual separatorA
-st.caption("Developed as a Data Governance Dashboard using Streamlit. Remember to customize metric calculations for your specific data.")
+# 3. Year Slider (cascades from Indicator)
+selected_year = None
+if not df_filtered_by_series.empty:
+    all_years = sorted(df_filtered_by_series['Year'].unique().tolist())
+    if all_years:
+        selected_year = st.sidebar.slider("Select Year", min_value=min(all_years), max_value=max(all_years), value=max(all_years))
+    else:
+        st.sidebar.warning("No year data available for the selected indicator. Try a different indicator.")
+else:
+    st.sidebar.warning("Please select an ESG Indicator first to see available years.")
+
+# Filter the DataFrame based on the selected year
+df_final = pd.DataFrame()
+if selected_year is not None:
+    df_final = df_filtered_by_series[df_filtered_by_series['Year'] == selected_year]
+
+# 4. Country Multi-select (cascades from Year)
+selected_countries = []
+if not df_final.empty:
+    all_countries = sorted(df_final['Country Name'].unique().tolist())
+    if all_countries:
+        default_countries = all_countries[:min(5, len(all_countries))] # Select top 5 or fewer if less than 5
+        selected_countries = st.sidebar.multiselect("Select Countries (optional)", all_countries, default=default_countries)
+    else:
+        st.sidebar.warning("No countries available for the current selections. Try adjusting year or indicator.")
+else:
+    st.sidebar.warning("Please select a Year to see available countries.")
+
+# Further filter the DataFrame based on selected countries
+if selected_countries:
+    df_final = df_final[df_final['Country Name'].isin(selected_countries)]
+
+# --- Main Content Area ---
+
+# Check if the final filtered DataFrame is not empty before displaying visualizations
+if not df_final.empty:
+    # Retrieve the full indicator name and its long definition for display
+    current_indicator_name = df_series_lookup[df_series_lookup['Series Code'] == selected_series_code]['Indicator Name'].iloc[0]
+    indicator_description = df_series_lookup[df_series_lookup['Series Code'] == selected_series_code]['Long definition'].iloc[0]
+    
+    # Display the selected indicator's name and its detailed description
+    st.subheader(f"Indicator: {current_indicator_name} (Year: {selected_year})")
+    st.markdown(f"**Description:** {indicator_description}")
+
+    # Use columns to arrange the map and bar chart side-by-side
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("ESG Value by Country (Map)")
+        fig_map = px.choropleth(
+            df_final,
+            locations="Country Code",
+            color="ESG Value",
+            hover_name="Country Name",
+            color_continuous_scale=px.colors.sequential.Plasma,
+            projection="natural earth",
+            title=f"{current_indicator_name} by Country in {selected_year}"
+        )
+        fig_map.update_layout(height=500, margin={"r":0,"t":50,"l":0,"b":0})
+        st.plotly_chart(fig_map, use_container_width=True)
+
+    with col2:
+        st.subheader("ESG Value Comparison (Bar Chart)")
+        df_bar_chart = df_final.sort_values(by="ESG Value", ascending=False)
+        fig_bar = px.bar(
+            df_bar_chart,
+            x="Country Name",
+            y="ESG Value",
+            title=f"{current_indicator_name} Comparison in {selected_year}",
+            labels={"ESG Value": current_indicator_name}
+        )
+        fig_bar.update_layout(height=500, margin={"r":0,"t":50,"l":0,"b":0})
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    # --- Time Series Trend (New Plot) ---
+    st.subheader(f"Time Series Trend for {current_indicator_name}")
+    # Filter data for the selected indicator across all available years for the selected countries
+    df_time_series = df_filtered_by_series[df_filtered_by_series['Country Name'].isin(selected_countries)]
+    
+    if not df_time_series.empty:
+        fig_line = px.line(
+            df_time_series,
+            x="Year",
+            y="ESG Value",
+            color="Country Name",
+            title=f"Trend of {current_indicator_name} over Time",
+            labels={"ESG Value": current_indicator_name}
+        )
+        fig_line.update_layout(hovermode="x unified") # Unified hover for easier comparison
+        st.plotly_chart(fig_line, use_container_width=True)
+    else:
+        st.info("Select countries to view the time series trend.")
+
+    # --- Display Footnotes (if available for selected data) ---
+    st.subheader("Relevant Footnotes")
+    # Filter footnotes based on selected country, series, and year
+    # Note: Footnotes are often general or specific to a data point.
+    # This attempts to show footnotes relevant to the current view.
+    
+    # Get unique combinations of Country Code, Series Code, Time Code from the final displayed data
+    footnote_keys = df_final[['Country Code', 'Series Code', 'Time Code']].drop_duplicates()
+    
+    # Filter df_footnote for matching entries
+    relevant_footnotes = pd.merge(footnote_keys, df_footnote, on=['Country Code', 'Series Code', 'Time Code'], how='inner')
+
+    if not relevant_footnotes.empty:
+        # Merge with country and series lookup to display names
+        relevant_footnotes = pd.merge(relevant_footnotes, df_country_lookup[['Country Code', 'Country Name']], on='Country Code', how='left')
+        relevant_footnotes = pd.merge(relevant_footnotes, df_series_lookup[['Series Code', 'Indicator Name']], on='Series Code', how='left')
+        
+        st.dataframe(relevant_footnotes[['Country Name', 'Indicator Name', 'Year', 'Footnote']], use_container_width=True)
+    else:
+        st.info("No specific footnotes found for the current selections.")
+
+else:
+    st.info("Please adjust your filter selections. No data is available for the current combination of ESG Category, Indicator, Year, and Countries.")
+
+st.markdown("---")
+st.markdown("Data Source: World Bank ESG Data Draft Dataset")

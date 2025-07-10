@@ -1,128 +1,162 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 
-# Set the page configuration for a wide layout
-st.set_page_config(layout="wide")
+# Define paths to your data files (adjust these as necessary)
+ESG_DATA_PATH = 'esg_data.csv'
+ESG_SERIES_PATH = 'esg_series.csv'
 
-# Function to load and process data
-# Using st.cache_data to cache the data and improve performance
 @st.cache_data
 def load_data():
     """
-    This function loads the ESG data from CSV files, merges them,
-    and processes the data into a clean, long format.
+    Loads ESG data and series data, and merges them.
+    Includes robust error handling for common merging issues.
     """
     try:
-        # Load the datasets from CSV files
-        esg_data = pd.read_csv('ESGData.csv')
-        esg_country = pd.read_csv('ESGCountry.csv')
-        esg_series = pd.read_csv('ESGSeries.csv')
+        esg_data = pd.read_csv(ESG_DATA_PATH)
+        esg_series = pd.read_csv(ESG_SERIES_PATH)
 
-        # Merge the dataframes to combine information
-        merged_data = pd.merge(esg_data, esg_series, on='Series Code', how='left')
-        merged_data = pd.merge(merged_data, esg_country, on='Country Code', how='left')
-
-        # Remove unnecessary columns that are artifacts of the merge
-        if 'Unnamed: 4_x' in merged_data.columns:
-            merged_data = merged_data.drop(columns=['Unnamed: 4_x'])
-        if 'Unnamed: 4_y' in merged_data.columns:
-            merged_data = merged_data.drop(columns=['Unnamed: 4_y'])
-        if 'DESCRIPTION' in merged_data.columns:
-            merged_data = merged_data.drop(columns=['DESCRIPTION'])
+    except FileNotFoundError as e:
+        st.error(f"Error: Data file not found. Please ensure '{e.filename}' exists.")
+        st.stop() # Stop the app execution if files are missing
+    except pd.errors.EmptyDataError:
+        st.error("Error: One of your CSV files is empty.")
+        st.stop()
+    except Exception as e:
+        st.error(f"An unexpected error occurred while loading data: {e}")
+        st.stop()
 
 
-        # 'Melt' the dataframe to convert it from a wide format to a long format.
-        # This is a crucial step for making the data plottable and filterable by year.
-        id_vars = [col for col in merged_data.columns if 'YR' not in col]
-        value_vars = [col for col in merged_data.columns if 'YR' in col]
+    # --- Debugging and Column Name Handling ---
+    st.subheader("Data Loading Debug Information:")
+    st.write("Columns in `esg_data`:", esg_data.columns.tolist())
+    st.write("Columns in `esg_series`:", esg_series.columns.tolist())
 
-        melted_data = pd.melt(merged_data, id_vars=id_vars, value_vars=value_vars, var_name='Year', value_name='Value')
+    # Define the expected merge key
+    merge_key = 'Series Code'
 
-        # Clean and convert data types for the 'Year' and 'Value' columns
-        melted_data['Year'] = melted_data['Year'].str.extract(r'(\d{4})')
-        melted_data['Year'] = pd.to_numeric(melted_data['Year'], errors='coerce')
-        melted_data['Value'] = pd.to_numeric(melted_data['Value'], errors='coerce')
+    # Check if 'Series Code' exists in both dataframes
+    esg_data_cols = esg_data.columns.tolist()
+    esg_series_cols = esg_series.columns.tolist()
 
-        # Drop rows with missing values to ensure data quality
-        melted_data.dropna(subset=['Value', 'Year', 'Country Code', 'Series Code', 'Long Name'], inplace=True)
-        melted_data['Year'] = melted_data['Year'].astype(int)
+    data_key_exists = merge_key in esg_data_cols
+    series_key_exists = merge_key in esg_series_cols
 
-        return melted_data
+    if not data_key_exists and not series_key_exists:
+        st.error(f"Error: Neither '{merge_key}' found in `esg_data` nor `esg_series`.")
+        st.info("Please check your CSV files or data loading logic for correct column names.")
+        st.stop()
+    elif not data_key_exists:
+        st.warning(f"Warning: '{merge_key}' not found in `esg_data`.")
+        st.info("Attempting to find similar column names in `esg_data` for a potential rename.")
+        # Attempt to find similar columns and rename
+        found = False
+        for col in esg_data_cols:
+            if col.lower().replace('_', ' ') == merge_key.lower().replace('_', ' '):
+                st.info(f"Renaming '{col}' in `esg_data` to '{merge_key}'.")
+                esg_data = esg_data.rename(columns={col: merge_key})
+                found = True
+                break
+        if not found:
+            st.error(f"Could not find a suitable column to rename in `esg_data` to '{merge_key}'. Merge will likely fail.")
+            st.stop() # Stop if we can't fix it
 
-    except FileNotFoundError:
-        st.error("One of the required CSV files was not found. Please make sure ESGData.csv, ESGCountry.csv, and ESGSeries.csv are in the same directory as the app.")
-        return None
+    elif not series_key_exists:
+        st.warning(f"Warning: '{merge_key}' not found in `esg_series`.")
+        st.info("Attempting to find similar column names in `esg_series` for a potential rename.")
+        # Attempt to find similar columns and rename
+        found = False
+        for col in esg_series_cols:
+            if col.lower().replace('_', ' ') == merge_key.lower().replace('_', ' '):
+                st.info(f"Renaming '{col}' in `esg_series` to '{merge_key}'.")
+                esg_series = esg_series.rename(columns={col: merge_key})
+                found = True
+                break
+        if not found:
+            st.error(f"Could not find a suitable column to rename in `esg_series` to '{merge_key}'. Merge will likely fail.")
+            st.stop() # Stop if we can't fix it
 
-# Load the data using the function defined above
+
+    # Ensure the merge key column is of the same type if possible (e.g., string)
+    try:
+        esg_data[merge_key] = esg_data[merge_key].astype(str)
+        esg_series[merge_key] = esg_series[merge_key].astype(str)
+        st.info(f"Successfully converted '{merge_key}' column to string type in both dataframes.")
+    except KeyError:
+        # This case should ideally be caught by the above checks, but good for robustness
+        st.error(f"Critical Error: '{merge_key}' column not found after renaming attempts. Cannot proceed with type conversion.")
+        st.stop()
+    except Exception as e:
+        st.warning(f"Could not convert '{merge_key}' column to string type: {e}. Proceeding with merge, but type mismatch could be an issue.")
+
+
+    st.success(f"Both dataframes now have a '{merge_key}' column. Proceeding with merge.")
+
+    # Perform the merge
+    try:
+        merged_data = pd.merge(esg_data, esg_series, on=merge_key, how='left')
+        st.success("Data merged successfully!")
+        st.write("Shape of merged data:", merged_data.shape)
+        st.dataframe(merged_data.head()) # Show a preview of the merged data
+        return merged_data
+    except KeyError as e:
+        st.error(f"Merge failed due to a KeyError: {e}. This indicates a problem with the merge key even after checks.")
+        st.error("Double-check column names and data types, and ensure there's truly a common key.")
+        st.stop()
+    except Exception as e:
+        st.error(f"An unexpected error occurred during the merge operation: {e}")
+        st.stop()
+
+
+# --- Streamlit App Layout ---
+st.set_page_config(layout="wide")
+st.title("ESG Data Explorer")
+
+# Load data
 data = load_data()
 
-# Check if the data was loaded successfully before building the UI
 if data is not None:
-    st.title("Interactive ESG Data Dashboard")
+    st.header("Exploratory Data Analysis")
+    st.write("Use the sidebar filters to explore the data.")
 
-    # --- Sidebar for Filters ---
+    # Example: Simple filtering (customize as needed)
     st.sidebar.header("Filters")
+    if 'Country Name' in data.columns:
+        countries = data['Country Name'].unique().tolist()
+        selected_country = st.sidebar.selectbox("Select Country", ['All'] + countries)
+        if selected_country != 'All':
+            data = data[data['Country Name'] == selected_country]
 
-    # Filter by ESG Topic (e.g., Environment, Social, Governance)
-    topics = sorted(data['Topic'].unique())
-    selected_topic = st.sidebar.selectbox("Select ESG Topic", topics)
+    if 'Year' in data.columns:
+        years = data['Year'].unique().tolist()
+        selected_year = st.sidebar.selectbox("Select Year", ['All'] + sorted(years, reverse=True))
+        if selected_year != 'All':
+            data = data[data['Year'] == selected_year]
 
-    # Filter by ESG Indicator (dependent on the selected topic)
-    series_options = sorted(data[data['Topic'] == selected_topic]['Indicator Name'].unique())
-    selected_series = st.sidebar.selectbox("Select ESG Indicator", series_options)
+    st.subheader("Filtered Data Preview")
+    st.dataframe(data.head())
 
-    # Filter by Year
-    years = sorted(data['Year'].unique(), reverse=True)
-    selected_year = st.sidebar.selectbox("Select Year", years)
-
-    # Filter the main dataframe based on user selections
-    filtered_data = data[
-        (data['Topic'] == selected_topic) &
-        (data['Indicator Name'] == selected_series) &
-        (data['Year'] == selected_year)
-    ]
-
-    # Display the detailed description of the selected indicator
-    series_description = data[data['Indicator Name'] == selected_series]['Long definition'].iloc[0]
-    with st.expander("Indicator Description"):
-        st.markdown(series_description)
-
-    # --- Main Dashboard Area ---
-
-    if not filtered_data.empty:
-        # Create two columns for the visualizations
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.subheader(f"{selected_series} in {selected_year}")
-            # Choropleth Map showing global distribution of the selected indicator
-            fig_map = px.choropleth(
-                filtered_data,
-                locations="Country Code",
-                color="Value",
-                hover_name="Long Name",
-                color_continuous_scale=px.colors.sequential.Plasma,
-                title="Global Distribution"
-            )
-            st.plotly_chart(fig_map, use_container_width=True)
-
-        with col2:
-            st.subheader(f"Top 20 Countries for {selected_series} in {selected_year}")
-            # Bar Chart comparing the top 20 countries for the selected indicator
-            bar_data = filtered_data.sort_values('Value', ascending=False).head(20)
-            fig_bar = px.bar(
-                bar_data,
-                x="Long Name",
-                y="Value",
-                title="Country Comparison",
-                labels={'Long Name': 'Country', 'Value': selected_series},
-                hover_data=['Value']
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
-
+    # Add more visualizations or analysis here using the 'data' dataframe
+    # Example: Display a simple metric
+    st.subheader("Key Statistics")
+    if 'Value' in data.columns:
+        st.metric("Total Value (Filtered)", f"{data['Value'].sum():,.2f}")
     else:
-        st.warning("No data available for the selected filters. Please try different selections.")
+        st.info("The 'Value' column is not available for calculating total.")
 
-else:
-    st.info("Data could not be loaded. Please check that the required CSV files are in the correct directory and try again.")
+
+    # Example Plot (requires altair or plotly)
+    if 'Year' in data.columns and 'Value' in data.columns and 'Series Name' in data.columns:
+        st.subheader("Value Over Time by Series")
+        # Ensure 'Value' is numeric
+        data['Value'] = pd.to_numeric(data['Value'], errors='coerce')
+        plot_data = data.dropna(subset=['Year', 'Value', 'Series Name'])
+        if not plot_data.empty:
+            import plotly.express as px
+            fig = px.line(plot_data, x='Year', y='Value', color='Series Name',
+                          title='Value Trends by Series',
+                          labels={'Value': 'ESG Value', 'Year': 'Year'})
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Not enough data to generate the 'Value Over Time' plot with current filters.")
+    else:
+        st.info("Missing 'Year', 'Value', or 'Series Name' columns for plotting.")

@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os # Import the os module for path manipulation
+import plotly.express as px # Import plotly for visualizations
 
 # --- Configuration for File Paths ---
 # Get the directory of the current script.
@@ -9,19 +10,19 @@ SCRIPT_DIR = os.path.dirname(__file__)
 
 # Define paths to your data files.
 # ADJUST THESE PATHS BASED ON WHERE YOUR CSV FILES ARE LOCATED:
-# Option 1: Data files are in a 'data' subfolder within the app's directory (RECOMMENDED)
+# RECOMMENDED: Data files are in a 'data' subfolder within the app's directory
 DATA_FOLDER = os.path.join(SCRIPT_DIR, 'data')
 ESG_DATA_PATH = os.path.join(DATA_FOLDER, 'esg_data.csv')
 ESG_SERIES_PATH = os.path.join(DATA_FOLDER, 'esg_series.csv')
 
-# Option 2: Data files are in the SAME directory as the app script
+# ALTERNATIVE 1: Data files are in the SAME directory as the app script (UNCOMMENT BELOW AND COMMENT OUT THE 'RECOMMENDED' OPTION ABOVE IF THIS IS YOUR SETUP)
 # ESG_DATA_PATH = os.path.join(SCRIPT_DIR, 'esg_data.csv')
 # ESG_SERIES_PATH = os.path.join(SCRIPT_DIR, 'esg_series.csv')
 
-# Option 3: Data files are in an ABSOLUTE PATH (e.g., C:/data/esg_data.csv on Windows)
+# ALTERNATIVE 2: Data files are in an ABSOLUTE PATH (e.g., C:/data/esg_data.csv on Windows) (UNCOMMENT BELOW AND COMMENT OUT THE 'RECOMMENDED' OPTION ABOVE IF THIS IS YOUR SETUP)
 # Only use this if you are absolutely sure of the exact path and it's not changing.
-# ESG_DATA_PATH = '/path/to/your/esg_data.csv'
-# ESG_SERIES_PATH = '/path/to/your/esg_series.csv'
+# ESG_DATA_PATH = '/path/to/your/esg_data.csv' # Example: '/home/user/my_app/data/esg_data.csv' or 'C:/Users/YourUser/Documents/esg_data.csv'
+# ESG_SERIES_PATH = '/path/to/your/esg_series.csv' # Example: '/home/user/my_app/data/esg_series.csv' or 'C:/Users/YourUser/Documents/esg_series.csv'
 
 
 @st.cache_data
@@ -32,27 +33,31 @@ def load_data():
     """
     st.subheader("Data Loading Process:")
 
-    # 1. Check if the data folder exists (if applicable)
+    # 1. Critical Check: Ensure the data folder exists if using a subfolder setup (Recommended option)
+    # This check specifically targets the 'data' subfolder setup.
+    # If you're using ALTERNATIVE 1 or 2, this specific folder check will not be applicable.
     if 'data' in DATA_FOLDER and not os.path.exists(DATA_FOLDER):
         st.error(f"Error: The data folder '{DATA_FOLDER}' does not exist.")
-        st.info("Please create a 'data' folder in the same directory as this script and place your CSV files inside.")
-        st.stop()
+        st.info("Please create a folder named 'data' in the same directory as this Streamlit script.")
+        st.info("Then, place your `esg_data.csv` and `esg_series.csv` files inside that 'data' folder.")
+        st.stop() # Stop the app if the folder is missing
 
-    # 2. Load the dataframes
-    esg_data = pd.DataFrame() # Initialize as empty to prevent NameError if load fails
+    # 2. Initialize DataFrames as empty to prevent NameError if load fails
+    esg_data = pd.DataFrame()
     esg_series = pd.DataFrame()
 
+    # 3. Load the dataframes with individual file existence checks
     try:
         if not os.path.exists(ESG_DATA_PATH):
-            st.error(f"Error: `esg_data.csv` not found at '{ESG_DATA_PATH}'.")
-            st.info("Please ensure the file exists and the `ESG_DATA_PATH` in the code is correct.")
+            st.error(f"Error: `esg_data.csv` not found at the expected path: '{ESG_DATA_PATH}'.")
+            st.info("Please ensure the file exists and the `ESG_DATA_PATH` configuration in the code is correct.")
             st.stop()
         esg_data = pd.read_csv(ESG_DATA_PATH)
         st.success(f"Successfully loaded `esg_data.csv` from '{ESG_DATA_PATH}'.")
 
         if not os.path.exists(ESG_SERIES_PATH):
-            st.error(f"Error: `esg_series.csv` not found at '{ESG_SERIES_PATH}'.")
-            st.info("Please ensure the file exists and the `ESG_SERIES_PATH` in the code is correct.")
+            st.error(f"Error: `esg_series.csv` not found at the expected path: '{ESG_SERIES_PATH}'.")
+            st.info("Please ensure the file exists and the `ESG_SERIES_PATH` configuration in the code is correct.")
             st.stop()
         esg_series = pd.read_csv(ESG_SERIES_PATH)
         st.success(f"Successfully loaded `esg_series.csv` from '{ESG_SERIES_PATH}'.")
@@ -136,7 +141,7 @@ st.title("🌎 Global ESG Data Explorer")
 # Load data
 data = load_data()
 
-# Only proceed with UI if data loaded successfully
+# Only proceed with UI if data loaded successfully and is not empty
 if data is not None and not data.empty:
     st.header("🔍 Explore Your Data")
     st.write("Use the sidebar filters to narrow down the dataset and visualize insights.")
@@ -209,7 +214,6 @@ if data is not None and not data.empty:
         plot_data['Year'] = pd.to_numeric(plot_data['Year'], errors='coerce').astype(int) # Ensure Year is int for plotting
 
         if not plot_data.empty:
-            import plotly.express as px
             # Aggregate data for cleaner line plots if many series or data points
             plot_data_agg = plot_data.groupby(['Year', 'Series Name'])['Value'].mean().reset_index()
 
@@ -234,4 +238,4 @@ if data is not None and not data.empty:
         st.info("Columns 'Series Name' or 'Definition' not available for data dictionary.")
 
 else:
-    st.warning("Data could not be loaded or is empty. Please check the error messages above.")
+    st.warning("Data could not be loaded or is empty. Please check the error messages above for details.")
